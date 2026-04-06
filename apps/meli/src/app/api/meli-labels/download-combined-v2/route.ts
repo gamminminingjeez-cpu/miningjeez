@@ -1,4 +1,4 @@
-// v6 - Descarga fresca desde MeLi API con fallback a PDFs almacenados
+// v7 - Descarga individual por shipment, luego combina 3 por A4 (multicuenta)
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument } from "pdf-lib";
 import { getSupabase, getActiveAccounts, getValidToken } from "@/lib/meli";
@@ -6,22 +6,15 @@ import { getSupabase, getActiveAccounts, getValidToken } from "@/lib/meli";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-// Fetch con timeout configurable (MeLi puede tardar con muchas etiquetas)
-async function meliGetRawLong(path: string, token: string, timeoutMs = 25000): Promise<ArrayBuffer | null> {
+async function meliGetRawLong(path: string, token: string, timeoutMs = 20000): Promise<ArrayBuffer | null> {
   try {
     const res = await fetch(`https://api.mercadolibre.com${path}`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!res.ok) {
-      console.warn(`[historial] MeLi ${res.status} para ${path.slice(0, 80)}`);
-      return null;
-    }
+    if (!res.ok) return null;
     return res.arrayBuffer();
-  } catch (err) {
-    console.warn(`[historial] Timeout/error MeLi:`, (err as Error).message);
-    return null;
-  }
+  } catch { return null; }
 }
 
 export async function POST(req: NextRequest) {
@@ -35,7 +28,6 @@ export async function POST(req: NextRequest) {
     const supabase = getSupabase();
     const uniqueIds: string[] = Array.from(new Set(ids));
 
-    // Obtener registros seleccionados
     let query = supabase
       .from("printed_labels")
       .select("shipment_id, meli_user_id, file_path")
@@ -51,94 +43,127 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Records not found" }, { status: 403 });
     }
 
-    // Agrupar shipment_ids por cuenta
-    const byAccount = new Map<string, number[]>();
+    // Dedup shipments
+    const shipments: Array<{ shipment_id: number; meli_user_id: string }> = [];
+    const seenSids = new Set<number>();
     for (const r of records) {
-      const uid = String(r.meli_user_id);
-      if (!byAccount.has(uid)) byAccount.set(uid, []);
-      const arr = byAccount.get(uid)!;
-      if (!arr.includes(r.shipment_id)) arr.push(r.shipment_id);
+      if (!seenSids.has(r.shipment_id)) {
+        seenSids.add(r.shipment_id);
+        shipments.push({ shipment_id: r.shipment_id, meli_user_id: String(r.meli_user_id) });
+      }
     }
 
     // Obtener tokens
     const accounts = await getActiveAccounts();
     const tokenMap = new Map<string, string>();
+    const neededUids = new Set(shipments.map(s => s.meli_user_id));
     await Promise.all(
-      accounts.map(async (acc) => {
-        const uid = String(acc.meli_user_id);
-        if (byAccount.has(uid)) {
+      accounts
+        .filter(acc => neededUids.has(String(acc.meli_user_id)))
+        .map(async (acc) => {
           const token = await getValidToken(acc);
-          if (token) tokenMap.set(uid, token);
-        }
-      })
+          if (token) tokenMap.set(String(acc.meli_user_id), token);
+        })
     );
 
-    // ── Intento 1: Descargar etiquetas frescas de MeLi API ───────────────
-    const pdfChunks: ArrayBuffer[] = [];
+    // ── Descargar cada etiqueta individualmente de MeLi ──────────────────
+    // Al pedir 1 ID, MeLi devuelve 1 etiqueta por página.
+    // Luego las combinamos de a 3 por A4 sin importar la cuenta.
+    interface LabelPage { doc: PDFDocument; pageIdx: number }
+    const individualLabels: LabelPage[] = [];
 
-    for (const [uid, shipmentIds] of Array.from(byAccount.entries())) {
-      const token = tokenMap.get(uid);
-      if (!token) continue;
-
-      // MeLi: max ~20 IDs por request para evitar timeout
-      for (let i = 0; i < shipmentIds.length; i += 20) {
-        const batch = shipmentIds.slice(i, i + 20);
-        const idsParam = batch.join(",");
-        const pdfBuffer = await meliGetRawLong(
-          `/shipment_labels?shipment_ids=${idsParam}&response_type=pdf`,
-          token,
-          25000
-        );
-        if (pdfBuffer && pdfBuffer.byteLength > 100) {
-          pdfChunks.push(pdfBuffer);
-        }
+    // Procesar en batches de 5 en paralelo para no saturar MeLi
+    for (let i = 0; i < shipments.length; i += 5) {
+      const batch = shipments.slice(i, i + 5);
+      const results = await Promise.all(
+        batch.map(async (s) => {
+          const token = tokenMap.get(s.meli_user_id);
+          if (!token) return null;
+          const buf = await meliGetRawLong(
+            `/shipment_labels?shipment_ids=${s.shipment_id}&response_type=pdf`,
+            token
+          );
+          if (!buf || buf.byteLength < 100) return null;
+          try {
+            const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
+            return { doc, pageIdx: 0 } as LabelPage;
+          } catch { return null; }
+        })
+      );
+      for (const r of results) {
+        if (r) individualLabels.push(r);
       }
     }
 
-    // ── Intento 2 (fallback): Si MeLi falló, usar PDFs almacenados ───────
-    if (pdfChunks.length === 0) {
-      console.warn("[historial] MeLi API falló, usando PDFs almacenados como fallback");
+    // ── Fallback: si MeLi falló, usar PDFs almacenados ───────────────────
+    if (individualLabels.length === 0) {
       const uniqueUrls: string[] = Array.from(new Set(
         records.map((r: { file_path: string }) => r.file_path).filter(Boolean)
       ));
-
+      // Fallback: copiar páginas tal como están
+      const pdfDoc = await PDFDocument.create();
       for (const url of uniqueUrls) {
         try {
           const response = await fetch(url);
-          if (response.ok) {
-            pdfChunks.push(await response.arrayBuffer());
-          }
+          if (!response.ok) continue;
+          const buf = await response.arrayBuffer();
+          const src = await PDFDocument.load(buf, { ignoreEncryption: true });
+          const pages = await pdfDoc.copyPages(src, src.getPageIndices());
+          pages.forEach(p => pdfDoc.addPage(p));
         } catch { /* skip */ }
       }
-    }
-
-    if (pdfChunks.length === 0) {
-      return NextResponse.json(
-        { error: "No se pudieron obtener las etiquetas" },
-        { status: 502 }
-      );
-    }
-
-    // Combinar PDFs
-    const pdfDoc = await PDFDocument.create();
-    for (const chunk of pdfChunks) {
-      try {
-        const src = await PDFDocument.load(chunk, { ignoreEncryption: true });
-        const copiedPages = await pdfDoc.copyPages(src, src.getPageIndices());
-        copiedPages.forEach((page) => pdfDoc.addPage(page));
-      } catch {
-        console.warn("[historial] PDF inválido, saltando...");
+      if (pdfDoc.getPageCount() === 0) {
+        return NextResponse.json({ error: "No se pudieron obtener las etiquetas" }, { status: 502 });
       }
+      const bytes = await pdfDoc.save();
+      return new NextResponse(Buffer.from(bytes), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="historial-etiquetas-${new Date().toISOString().slice(0, 10)}.pdf"`,
+        },
+      });
     }
 
-    if (pdfDoc.getPageCount() === 0) {
-      return NextResponse.json({ error: "No se pudo generar el PDF" }, { status: 502 });
+    // ── Combinar 3 etiquetas por hoja A4 landscape ───────────────────────
+    // A4 landscape: 841.89 x 595.28 pts
+    const A4_W = 841.89;
+    const A4_H = 595.28;
+    const LABELS_PER_ROW = 3;
+    const MARGIN_X = 14;
+    const MARGIN_Y = 10;
+    const GAP_X = 8;
+
+    const slotW = (A4_W - MARGIN_X * 2 - GAP_X * (LABELS_PER_ROW - 1)) / LABELS_PER_ROW;
+    const slotH = A4_H - MARGIN_Y * 2;
+
+    const pdfDoc = await PDFDocument.create();
+
+    for (let i = 0; i < individualLabels.length; i += LABELS_PER_ROW) {
+      const group = individualLabels.slice(i, i + LABELS_PER_ROW);
+      const a4Page = pdfDoc.addPage([A4_W, A4_H]);
+
+      for (let j = 0; j < group.length; j++) {
+        const { doc, pageIdx } = group[j];
+        const srcPage = doc.getPage(pageIdx);
+        const { width: srcW, height: srcH } = srcPage.getSize();
+
+        // Escalar para que quepa en el slot manteniendo proporción
+        const scale = Math.min(slotW / srcW, slotH / srcH, 1);
+        const drawW = srcW * scale;
+        const drawH = srcH * scale;
+
+        // Centrar en el slot
+        const x = MARGIN_X + j * (slotW + GAP_X) + (slotW - drawW) / 2;
+        const y = MARGIN_Y + (slotH - drawH) / 2;
+
+        const embedded = await pdfDoc.embedPage(srcPage);
+        a4Page.drawPage(embedded, { x, y, width: drawW, height: drawH });
+      }
     }
 
     const combinedPdfBytes = await pdfDoc.save();
-    const buffer = Buffer.from(combinedPdfBytes);
-
-    return new NextResponse(buffer, {
+    return new NextResponse(Buffer.from(combinedPdfBytes), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
