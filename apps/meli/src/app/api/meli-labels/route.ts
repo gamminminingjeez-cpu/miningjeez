@@ -9,6 +9,11 @@ export const revalidate = 0;
 export const maxDuration = 60;
 export const runtime = "nodejs";
 
+// ── Cache de 60 segundos para la acción "list" ────────────────────────────────
+interface CacheEntry { ts: number; data: unknown }
+const listCache = new Map<string, CacheEntry>();
+const CACHE_TTL = 60_000; // 60 s
+
 type UrgencyType = "delayed" | "today" | "tomorrow" | "week" | "upcoming";
 type LogisticType = "flex" | "turbo" | "correo" | "full";
 
@@ -248,6 +253,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ shipments: data ?? [] });
   }
 
+  // ── Caché para action=list (evita 15s de re-fetch en cada apertura) ──────────
+  if (action === "list") {
+    const cacheKey = `list:${tzOffset}`;
+    const cached = listCache.get(cacheKey);
+    const forceRefresh = searchParams.get("refresh") === "1";
+    if (!forceRefresh && cached && Date.now() - cached.ts < CACHE_TTL) {
+      return NextResponse.json(cached.data, { headers: { "X-Cache": "HIT" } });
+    }
+  }
+
   try {
     const accounts = await getActiveAccounts();
     if (!accounts.length) return NextResponse.json({ shipments: [], full: [], in_transit: [], returns: [], delayed_unshipped: [], delayed_in_transit: [], summary: {} });
@@ -335,7 +350,14 @@ export async function GET(req: Request) {
     }));
 
     // ── Enrichment con /shipments/{id} ─────────────────────────────────────
-    const allToEnrich = [...allShipments, ...allInTransit, ...allReturns];
+    // Solo enriquecer shipments cuyo tipo NO es ya definitivo (correo es default, full ya detectado)
+    // Esto reduce drásticamente las llamadas individuales a la API
+    const needsEnrichment = (s: ShipmentInfo) => {
+      // Si ya sabemos que es full, flex o turbo con certeza, no hace falta enriquecer
+      // Solo enriquecer "correo" (default) y los que no tienen delivery_date
+      return !s.delivery_date || s.type === "correo";
+    };
+    const allToEnrich = [...allShipments, ...allInTransit, ...allReturns].filter(needsEnrichment);
     const byAccountMap = new Map<string, { token: string; ids: number[] }>();
     for (const s of allToEnrich) {
       if (!byAccountMap.has(s.meli_user_id)) {
@@ -346,10 +368,10 @@ export async function GET(req: Request) {
       byAccountMap.get(s.meli_user_id)!.ids.push(s.shipment_id);
     }
 
-    // Batched enrichment — 10 shipments at a time to reduce rate-limit pressure
+    // Batched enrichment — 20 shipments at a time (subimos de 10 a 20)
     for (const { token, ids } of Array.from(byAccountMap.values())) {
-      for (let batchStart = 0; batchStart < ids.length; batchStart += 10) {
-        const batch = ids.slice(batchStart, batchStart + 10);
+      for (let batchStart = 0; batchStart < ids.length; batchStart += 20) {
+        const batch = ids.slice(batchStart, batchStart + 20);
         await Promise.all(
           batch.map(async (sid) => {
             const s = allToEnrich.find(x => x.shipment_id === sid);
@@ -505,14 +527,16 @@ export async function GET(req: Request) {
           })
         );
         // Pausa entre batches para no saturar la API
-        if (batchStart + 10 < ids.length) await new Promise(r => setTimeout(r, 200));
+        if (batchStart + 20 < ids.length) await new Promise(r => setTimeout(r, 100));
       }
     }
 
     // ── Thumbnails ────────────────────────────────────────────────────────────
+    // Buscar thumbnails de TODOS los shipments (no solo los enriquecidos)
+    const allForThumbnails = [...allShipments, ...allInTransit, ...allReturns];
     const thumbnailMap  = new Map<string, string>();
     const itemsByAccount = new Map<string, { token: string; itemIds: string[] }>();
-    for (const s of allToEnrich) {
+    for (const s of allForThumbnails) {
       if (!s.item_id) continue;
       const t = tokenCache.get(s.meli_user_id);
       if (!t) continue;
@@ -532,7 +556,6 @@ export async function GET(req: Request) {
                 if (e.code === 200 && e.body?.id) {
                   let img = e.body.secure_thumbnail || e.body.thumbnail;
                   if (img) {
-                    // Fix duplicated protocol: http://http2.mlstatic.com → https://http2.mlstatic.com
                     img = img.replace(/^https?:\/\/https?:\/\//, "https://").replace(/^http:\/\//, "https://");
                     thumbnailMap.set(e.body.id, img);
                   }
@@ -540,58 +563,16 @@ export async function GET(req: Request) {
               }
             }
           } catch { /* skip */ }
-          if (i + 20 < itemIds.length) await new Promise(r => setTimeout(r, 150));
+          if (i + 20 < itemIds.length) await new Promise(r => setTimeout(r, 100));
         }
       })
     );
     
-    // Aplicar thumbnails de items
-    for (const s of allToEnrich) {
+    // Aplicar thumbnails
+    for (const s of allForThumbnails) {
       if (s.item_id && thumbnailMap.has(s.item_id)) s.thumbnail = thumbnailMap.get(s.item_id)!;
     }
-
-    // ── Fallback: Enriquecimiento desde order_items si thumbnail sigue vacío ─────
-    const missingThumbnails = allToEnrich.filter(s => !s.thumbnail && s.order_id);
-    const ordersByAccount = new Map<string, { token: string; orderIds: number[] }>();
-    for (const s of missingThumbnails) {
-      if (!ordersByAccount.has(s.meli_user_id)) {
-        const t = tokenCache.get(s.meli_user_id);
-        if (!t) continue;
-        ordersByAccount.set(s.meli_user_id, { token: t, orderIds: [] });
-      }
-      const entry = ordersByAccount.get(s.meli_user_id)!;
-      if (!entry.orderIds.includes(s.order_id!)) entry.orderIds.push(s.order_id!);
-    }
-    
-    await Promise.all(
-      Array.from(ordersByAccount.values()).map(async ({ token, orderIds }) => {
-        for (let i = 0; i < orderIds.length; i += 10) {
-          const batch = orderIds.slice(i, i + 10);
-          await Promise.all(
-            batch.map(async (orderId) => {
-              try {
-                const orderDetail = await meliGetWithRetry(`/orders/${orderId}`, token) as Record<string, unknown> | null;
-                if (!orderDetail) return;
-                
-                const items = (orderDetail.order_items as Array<{ item?: { thumbnail?: string } }> | undefined) ?? [];
-                const firstItem = items[0];
-                let thumbnail = firstItem?.item?.thumbnail as string | undefined;
-                
-                if (thumbnail) {
-                  // Ensure HTTPS
-                  thumbnail = thumbnail.replace(/^https?:\/\/https?:\/\//, "https://").replace(/^http:\/\//, "https://");
-                  
-                  // Aplicar al shipment correspondiente
-                  const shipment = missingThumbnails.find(s => s.order_id === orderId);
-                  if (shipment) shipment.thumbnail = thumbnail;
-                }
-              } catch { /* skip */ }
-            })
-          );
-          if (i + 10 < orderIds.length) await new Promise(r => setTimeout(r, 200));
-        }
-      })
-    );
+    // Nota: eliminado el fallback via /orders/{id} (era lento y agregaba 1-2s extra)
 
     // ── Separación final ──────────────────────────────────────────────────────
     const urgencyOrder: Record<UrgencyType, number>   = { delayed: 0, today: 1, tomorrow: 2, week: 3, upcoming: 4 };
@@ -627,7 +608,7 @@ export async function GET(req: Request) {
     const delayed_in_transit = in_transit.filter(s => isDatePast(s.delivery_date));
 
     if (action === "list") {
-      return NextResponse.json({
+      const responseData = {
         shipments:          pending,
         printed:            printedShipments,
         full:               fullItems,
@@ -649,7 +630,11 @@ export async function GET(req: Request) {
           printed_flex:       printedShipments.filter(s => s.type === "flex").length,
           printed_turbo:      printedShipments.filter(s => s.type === "turbo").length,
         },
-      });
+      };
+      // Guardar en caché
+      const cacheKey = `list:${tzOffset}`;
+      listCache.set(cacheKey, { ts: Date.now(), data: responseData });
+      return NextResponse.json(responseData);
     }
 
     // ── Download ───────────────────────────────────────────────────────────────
