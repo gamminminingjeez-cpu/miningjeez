@@ -125,13 +125,39 @@ export async function POST(req: NextRequest) {
     const isAlreadyGrouped = allPages.length < totalLabels;
 
     // ── Combinar PDFs de todas las cuentas ───────────────────────────────
-    // Copiar páginas tal como vienen de MeLi, sin escalar.
-    // Si MeLi devuelve etiquetas individuales 10x15, se mantienen así.
-    // Si MeLi las agrupa 3 por A4, se mantienen así.
+    // Si MeLi ya agrupó (Correo: 3 por A4), copiar tal cual.
+    // Si son individuales (Flex: 1 por página), agrupar 3 por A4 landscape
+    // sin escalar el contenido (cada etiqueta 10x15cm = 283x425 pt).
     const pdfDoc = await PDFDocument.create();
-    for (const { doc, idx } of allPages) {
-      const [copied] = await pdfDoc.copyPages(doc, [idx]);
-      pdfDoc.addPage(copied);
+
+    if (isAlreadyGrouped) {
+      // Ya agrupadas: copiar páginas directamente
+      for (const { doc, idx } of allPages) {
+        const [copied] = await pdfDoc.copyPages(doc, [idx]);
+        pdfDoc.addPage(copied);
+      }
+    } else {
+      // Etiquetas individuales: 3 por A4 landscape (841x595 pt)
+      const A4_W = 841.89;
+      const A4_H = 595.28;
+      // Etiqueta MeLi: 10x15cm @ 72dpi base = 283.46x425.2 pt
+      const LBL_W = 283.46;
+      const LBL_H = 425.2;
+      const COLS = 3;
+      const MX = 0; // sin márgenes laterales para que quepan exactas
+      const MY = (A4_H - LBL_H) / 2; // centrado vertical
+
+      for (let i = 0; i < allPages.length; i += COLS) {
+        const group = allPages.slice(i, i + COLS);
+        const a4 = pdfDoc.addPage([A4_W, A4_H]);
+
+        for (let j = 0; j < group.length; j++) {
+          const { doc, idx } = group[j];
+          const embedded = await pdfDoc.embedPage(doc.getPage(idx));
+          const x = MX + j * LBL_W;
+          a4.drawPage(embedded, { x, y: MY, width: LBL_W, height: LBL_H });
+        }
+      }
     }
 
     return new NextResponse(Buffer.from(await pdfDoc.save()), {
