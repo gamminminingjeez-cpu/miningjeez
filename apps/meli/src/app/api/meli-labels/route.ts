@@ -1,5 +1,5 @@
-﻿import { NextResponse } from "next/server";
-import { getSupabase, getActiveAccounts, getValidToken, meliGet, meliGetRaw, meliGetWithRetry } from "@/lib/meli";
+import { NextResponse } from "next/server";
+import { getSupabase, getActiveAccountsForUser, getValidToken, meliGet, meliGetRaw, meliGetWithRetry, getAuthenticatedUserId } from "@/lib/meli";
 import { calculateZoneDistance, classifyFlexZone } from "@/lib/zone-calc";
 import { PDFDocument } from "pdf-lib";
 import { inflateRawSync } from "zlib";
@@ -111,7 +111,7 @@ function classifyType(logisticType: string, tags: string[], substatus?: string, 
 
 function parseOrder(
   order: Record<string, unknown>,
-  acc: { nickname: string; meli_user_id: number | string }
+  acc: { nickname?: string; meli_nickname?: string; meli_user_id: number | string }
 ): ShipmentInfo | null {
   const ship = order.shipping as Record<string, unknown> | undefined;
   if (!ship?.id) return null;
@@ -148,12 +148,15 @@ function parseOrder(
     ?.filter(attr => attr.value_name?.trim())
     .map(attr => `${attr.name}: ${attr.value_name}`)
     .join(', ') || null;
+    
+  // Obtener nickname (compatible con ambos tipos de cuenta)
+  const accountNickname = acc.nickname || acc.meli_nickname || "Unknown";
 
   return {
     shipment_id:    sid,
     order_id:       (order.id as number | undefined) ?? null,
     order_date:     (order.date_created as string | undefined) ?? null,
-    account:        String(acc.nickname),
+    account:        accountNickname,
     meli_user_id:   String(acc.meli_user_id),
     type,
     buyer:          `${(buyer?.first_name as string | undefined) ?? ""} ${(buyer?.last_name as string | undefined) ?? ""}`.trim(),
@@ -200,6 +203,13 @@ export async function GET(req: Request) {
   const action = searchParams.get("action") ?? "list";
   const format = searchParams.get("format") ?? "pdf";
   const tzOffset = parseFloat(searchParams.get("tz_offset") ?? "0");
+  
+  // Obtener user_id del usuario autenticado
+  const userId = await getAuthenticatedUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+  }
+  
   const supabase = getSupabase();
 
   // Función helper para ajustar fechas a zona horaria local
@@ -219,7 +229,7 @@ export async function GET(req: Request) {
     return { today, yesterday, weekAgo };
   };
 
-  // -- Historial de impresas --------------------------------------------------
+  // ── Historial de impresas ──────────────────────────────────────────────────
   if (action === "history") {
     const period = searchParams.get("period") ?? "today";
     let query = supabase
@@ -240,15 +250,18 @@ export async function GET(req: Request) {
       query = query.gte("printed_at", weekAgo.toISOString()) as typeof query;
     }
 
+    // Filtrar por user_id del usuario autenticado
+    query = query.eq("user_id", userId);
+    
     const { data } = await query;
     return NextResponse.json({ shipments: data ?? [] });
   }
 
   try {
-    const accounts = await getActiveAccounts();
+    const accounts = await getActiveAccountsForUser(userId);
     if (!accounts.length) return NextResponse.json({ shipments: [], full: [], in_transit: [], returns: [], delayed_unshipped: [], delayed_in_transit: [], summary: {} });
 
-    const { data: printed } = await supabase.from("meli_printed_labels").select("shipment_id, printed_at");
+    const { data: printed } = await supabase.from("meli_printed_labels").select("shipment_id, printed_at").eq("user_id", userId);
     const printedMap = new Map((printed ?? []).map((p: { shipment_id: number; printed_at: string }) => [p.shipment_id, p.printed_at]));
     const printedSet = new Set(printedMap.keys());
 
@@ -330,7 +343,7 @@ export async function GET(req: Request) {
       } catch { /* skip account */ }
     }));
 
-    // -- Enrichment con /shipments/{id} -------------------------------------
+    // ── Enrichment con /shipments/{id} ─────────────────────────────────────
     const allToEnrich = [...allShipments, ...allInTransit, ...allReturns];
     const byAccountMap = new Map<string, { token: string; ids: number[] }>();
     for (const s of allToEnrich) {
@@ -505,7 +518,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // -- Thumbnails ------------------------------------------------------------
+    // ── Thumbnails ────────────────────────────────────────────────────────────
     const thumbnailMap  = new Map<string, string>();
     const itemsByAccount = new Map<string, { token: string; itemIds: string[] }>();
     for (const s of allToEnrich) {
@@ -528,7 +541,7 @@ export async function GET(req: Request) {
                 if (e.code === 200 && e.body?.id) {
                   let img = e.body.secure_thumbnail || e.body.thumbnail;
                   if (img) {
-                    // Fix duplicated protocol: http://http2.mlstatic.com ? https://http2.mlstatic.com
+                    // Fix duplicated protocol: http://http2.mlstatic.com → https://http2.mlstatic.com
                     img = img.replace(/^https?:\/\/https?:\/\//, "https://").replace(/^http:\/\//, "https://");
                     thumbnailMap.set(e.body.id, img);
                   }
@@ -546,7 +559,7 @@ export async function GET(req: Request) {
       if (s.item_id && thumbnailMap.has(s.item_id)) s.thumbnail = thumbnailMap.get(s.item_id)!;
     }
 
-    // -- Fallback: Enriquecimiento desde order_items si thumbnail sigue vacío -----
+    // ── Fallback: Enriquecimiento desde order_items si thumbnail sigue vacío ─────
     const missingThumbnails = allToEnrich.filter(s => !s.thumbnail && s.order_id);
     const ordersByAccount = new Map<string, { token: string; orderIds: number[] }>();
     for (const s of missingThumbnails) {
@@ -589,7 +602,7 @@ export async function GET(req: Request) {
       })
     );
 
-    // -- Separación final ------------------------------------------------------
+    // ── Separación final ──────────────────────────────────────────────────────
     const urgencyOrder: Record<UrgencyType, number>   = { delayed: 0, today: 1, tomorrow: 2, week: 3, upcoming: 4 };
     const typeOrder:    Record<LogisticType, number>   = { correo: 0, turbo: 1, flex: 2, full: 3 };
     allShipments.sort((a, b) => {
@@ -603,21 +616,9 @@ export async function GET(req: Request) {
       s.is_printed = isSubstatusPrinted || !!s.printed_at;
     }
 
-    // Obtener fecha de hoy a las 00:00 para filtrar etiquetas impresas
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
     // Pending = no full, no impresos
     const pending   = allShipments.filter(s => s.type !== "full" && !s.is_printed);
-    // Printed = impresas HOY solo (hasta las 00:00 se limpian automáticamente)
-    const printedShipments = allShipments.filter(s => {
-      if (s.type === "full" || !s.is_printed) return false;
-      // Solo incluir si fue impresa hoy
-      if (!s.printed_at) return false;
-      const printedDate = new Date(s.printed_at);
-      return printedDate >= todayStart && printedDate <= todayEnd;
-    });
+    const printedShipments = allShipments.filter(s => s.type !== "full" && s.is_printed);
     const fullItems = allShipments.filter(s => s.type === "full");
 
     // Demorados sin despachar: pending con dispatch_date pasada o urgency delayed
@@ -660,7 +661,7 @@ export async function GET(req: Request) {
       });
     }
 
-    // -- Download ---------------------------------------------------------------
+    // ── Download ───────────────────────────────────────────────────────────────
     const selectedIds = searchParams.get("ids");
     const targetShipments = selectedIds
       ? allShipments.filter(s => s.type !== "full" && selectedIds.split(",").includes(String(s.shipment_id)))
@@ -670,7 +671,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "No hay envíos seleccionados" }, { status: 400 });
     }
 
-    // Ordenar por tipo de logística: correo ? turbo ? flex
+    // Ordenar por tipo de logística: correo → turbo → flex
     const printOrder: Record<LogisticType, number> = { correo: 0, turbo: 1, flex: 2, full: 3 };
     targetShipments.sort((a, b) => printOrder[a.type] - printOrder[b.type]);
 
@@ -772,66 +773,17 @@ export async function GET(req: Request) {
       });
     }
 
-    // PDF Merge — 3 etiquetas 10x15 cm en horizontal por hoja A4 (landscape)
-    // A4 landscape: 842 x 595 puntos (297mm x 210mm)
-    // Cada etiqueta 10x15 cm = 283 x 425 puntos aprox
-    // 3 etiquetas horizontales: 3 x 283 = 849 puntos (ajuste mínimo)
-    const A4_W = 841.89;  // A4 landscape ancho
-    const A4_H = 595.28;  // A4 landscape alto
-    const LABEL_W = 283.46; // 10 cm en puntos
-    const LABEL_H = 425.20; // 15 cm en puntos (altura máxima disponible)
-    const LABELS_PER_ROW = 3;
-    const GAP = 10; // gap entre etiquetas en puntos
-
-    // Cargar todos los chunks y recopilar páginas fuente
-    const srcDocs: PDFDocument[] = [];
-    const allLabelPages: { doc: PDFDocument; idx: number }[] = [];
+    // PDF Merge — unificar todos los chunks en un solo documento
+    const mergedPdf = await PDFDocument.create();
     for (const chunk of pdfChunks) {
       try {
         const src = await PDFDocument.load(chunk, { ignoreEncryption: true });
-        srcDocs.push(src);
-        for (const idx of src.getPageIndices()) {
-          allLabelPages.push({ doc: src, idx });
-        }
+        const pages = await mergedPdf.copyPages(src, src.getPageIndices());
+        for (const page of pages) mergedPdf.addPage(page);
       } catch {
+        // Si un chunk es inválido, lo saltamos sin romper el resto
         console.warn("[etiquetas] Chunk de PDF inválido, saltando...");
       }
-    }
-
-    if (allLabelPages.length === 0) {
-      return NextResponse.json({ error: "No se pudo generar el PDF: las etiquetas no están disponibles o MeLi no las devolvió correctamente." }, { status: 502 });
-    }
-
-    const mergedPdf = await PDFDocument.create();
-
-    // Calcular escala para que quepan 3 etiquetas de 10cm en el ancho A4
-    const availableWidth = A4_W - (GAP * (LABELS_PER_ROW - 1));
-    const scale = Math.min(1, availableWidth / (LABEL_W * LABELS_PER_ROW), A4_H / LABEL_H);
-    const drawW = LABEL_W * scale;
-    const drawH = LABEL_H * scale;
-    const startX = (A4_W - (drawW * LABELS_PER_ROW + GAP * (LABELS_PER_ROW - 1))) / 2;
-    const startY = (A4_H - drawH) / 2; // Centrar verticalmente
-
-    // Componer páginas A4 landscape con 3 etiquetas horizontales cada una
-    for (let i = 0; i < allLabelPages.length; i += LABELS_PER_ROW) {
-      const group = allLabelPages.slice(i, i + LABELS_PER_ROW);
-      const a4Page = mergedPdf.addPage([A4_W, A4_H]); // Landscape
-
-      for (let j = 0; j < group.length; j++) {
-        const { doc, idx } = group[j];
-        const srcPage = doc.getPage(idx);
-
-        // Posición horizontal: de izquierda a derecha
-        const x = startX + j * (drawW + GAP);
-        const y = startY;
-
-        const embedded = await mergedPdf.embedPage(srcPage);
-        a4Page.drawPage(embedded, { x, y, width: drawW, height: drawH });
-      }
-    }
-
-    if (mergedPdf.getPageCount() === 0) {
-      return NextResponse.json({ error: "No se pudo generar el PDF: las etiquetas no están disponibles o MeLi no las devolvió correctamente." }, { status: 502 });
     }
 
     const mergedBytes = await mergedPdf.save();
@@ -841,7 +793,7 @@ export async function GET(req: Request) {
     return new NextResponse(mergedBuffer, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="Etiquetas_AppJeez_${today}.pdf"`,
+        "Content-Disposition": `attachment; filename="Etiquetas_MaqJeez_${today}.pdf"`,
         "X-Total-Labels": String(targetShipments.length),
         "X-Total-Pages": String(mergedPdf.getPageCount()),
       },
@@ -924,7 +876,7 @@ export async function POST(req: Request) {
   }
 }
 
-// -- PATCH: Cambiar estado de etiqueta --------------------------------------
+// ── PATCH: Cambiar estado de etiqueta ──────────────────────────────────────
 export async function PATCH(req: Request) {
   try {
     const { shipment_id, status } = await req.json() as {
