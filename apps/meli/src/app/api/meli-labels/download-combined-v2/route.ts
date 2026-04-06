@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     // MeLi acepta hasta 50 shipment_ids por llamada y devuelve el PDF formateado
     const pdfChunks: ArrayBuffer[] = [];
 
-    for (const [uid, shipmentIds] of byAccount.entries()) {
+    for (const [uid, shipmentIds] of Array.from(byAccount.entries())) {
       const token = tokenMap.get(uid);
       if (!token) {
         console.warn(`[historial-v2] Sin token para cuenta ${uid}`);

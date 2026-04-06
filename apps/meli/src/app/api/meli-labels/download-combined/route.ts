@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     // Llamar a MeLi API para obtener las etiquetas exactas
     const pdfChunks: ArrayBuffer[] = [];
 
-    for (const [uid, shipmentIds] of byAccount.entries()) {
+    for (const [uid, shipmentIds] of Array.from(byAccount.entries())) {
       const token = tokenMap.get(uid);
       if (!token) continue;
 
