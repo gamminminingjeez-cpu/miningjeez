@@ -924,3 +924,5 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
 }
+
+// EOF
