@@ -28,12 +28,8 @@ export default function QuestionAlertGlobal() {
     if (stored === "true") setEnabled(true);
 
     const storedMode = localStorage.getItem(ALERT_MODE_STORAGE_KEY) as AlertMode | null;
-    console.log("[INIT] Modo almacenado en localStorage:", storedMode, "Key usado:", ALERT_MODE_STORAGE_KEY);
     if (storedMode && Object.keys(ALERT_MODES).includes(storedMode)) {
-      console.log("[INIT] Restaurando modo desde localStorage:", storedMode);
       setAlertMode(storedMode);
-    } else {
-      console.log("[INIT] Modo no encontrado o inválido, usando default: taller");
     }
 
     // ✅ PRELOAD: Cargar los 3 audios en RAM al montar el componente
@@ -55,8 +51,6 @@ export default function QuestionAlertGlobal() {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
     }
-
-    console.log("[INIT] Audios precargados en RAM para zero-delay");
   }, []);
 
   // Keep ref in sync
@@ -67,7 +61,6 @@ export default function QuestionAlertGlobal() {
 
   // Sync alert mode with localStorage
   useEffect(() => {
-    console.log("[SYNC] Guardando modo en localStorage:", alertMode, "Key:", ALERT_MODE_STORAGE_KEY);
     localStorage.setItem(ALERT_MODE_STORAGE_KEY, alertMode);
   }, [alertMode]);
 
@@ -84,38 +77,35 @@ export default function QuestionAlertGlobal() {
   // Función para reproducir sonido de alerta usando PRELOAD
   const playAlertSound = useCallback((mode?: AlertMode) => {
     try {
-      // ✅ VERIFICAR: Solo reproducir si las alertas están habilitadas
-      if (!enabledRef.current) {
-        console.log("[AUDIO] Sonido ignorado - alertas desactivadas");
-        return;
-      }
+      // Solo reproducir si las alertas están habilitadas
+      if (!enabledRef.current) return;
 
       const now = Date.now();
-      // Evitar sonidos duplicados si se llamó recientemente
-      if (now - lastSoundTimeRef.current < MIN_SOUND_INTERVAL) {
-        console.log("[AUDIO] Sonido ignorado - demasiado pronto desde el último");
-        return;
-      }
+      if (now - lastSoundTimeRef.current < MIN_SOUND_INTERVAL) return;
       lastSoundTimeRef.current = now;
 
       const modeToPlay = mode ?? alertModeRef.current;
-      const audios = (window as any).preloadedAudios;
-      if (!audios || !audios[modeToPlay]) {
-        console.error("❌ Audio no precargado:", modeToPlay, "Audios disponibles:", Object.keys(audios || {}));
-        return;
-      }
+      const audios = (window as any).preloadedAudios as Record<AlertMode, HTMLAudioElement> | undefined;
+      if (!audios || !audios[modeToPlay]) return;
 
-      const audio = audios[modeToPlay];
-      console.log(`[AUDIO] Reproduciendo ${modeToPlay}:`, audio.src);
-      audio.currentTime = 0;
-      audio.play().catch((e: Error) => {
-        console.error("❌ Error reproduciendo audio:", e);
+      // Detener TODOS los audios antes de reproducir el elegido
+      (Object.keys(audios) as AlertMode[]).forEach((key) => {
+        try {
+          audios[key].pause();
+          audios[key].currentTime = 0;
+        } catch { /* ignore */ }
       });
 
-      console.log(`✅ Sonido ${modeToPlay} reproducido (preload)`, new Date().toISOString());
-    } catch (error) {
-      console.error("❌ Error en playAlertSound:", error);
-    }
+      const audio = audios[modeToPlay];
+      audio.volume = ALERT_MODES[modeToPlay].volume;
+      audio.currentTime = 0;
+      audio.play().catch(() => {
+        // Autoplay bloqueado — crear audio nuevo desde click context
+        const fallback = new Audio(ALERT_MODES[modeToPlay].soundFile);
+        fallback.volume = ALERT_MODES[modeToPlay].volume;
+        fallback.play().catch(() => {});
+      });
+    } catch { /* silent */ }
   }, []);
 
   // Función para mostrar notificación de cambio de modo
@@ -247,6 +237,25 @@ export default function QuestionAlertGlobal() {
       Notification.requestPermission().catch(() => {});
     }
     setEnabled(true);
+
+    // Desbloquear autoplay policy: reproducir audio silencioso desde gesto de usuario
+    // Esto permite que las alertas automáticas funcionen después
+    const audios = (window as any).preloadedAudios as Record<AlertMode, HTMLAudioElement> | undefined;
+    if (audios) {
+      (Object.keys(audios) as AlertMode[]).forEach((key) => {
+        const a = audios[key];
+        a.volume = 0;
+        a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = ALERT_MODES[key].volume; })
+          .catch(() => {});
+      });
+    }
+
+    // Prueba audible para confirmar que funciona
+    setTimeout(() => {
+      enabledRef.current = true;
+      lastSoundTimeRef.current = 0; // resetear debounce
+      playAlertSound(alertMode);
+    }, 200);
   };
 
   const handleDisable = () => setEnabled(false);
