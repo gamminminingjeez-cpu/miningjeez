@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabase, getActiveAccountsForUser, getValidToken, meliGet, meliGetRaw, meliGetWithRetry, getAuthenticatedUserId } from "@/lib/meli";
+import { getSupabase, getActiveAccounts, getValidToken, meliGet, meliGetRaw, meliGetWithRetry } from "@/lib/meli";
 import { calculateZoneDistance, classifyFlexZone } from "@/lib/zone-calc";
 import { PDFDocument } from "pdf-lib";
 import { inflateRawSync } from "zlib";
@@ -203,29 +203,23 @@ export async function GET(req: Request) {
   const action = searchParams.get("action") ?? "list";
   const format = searchParams.get("format") ?? "pdf";
   const tzOffset = parseFloat(searchParams.get("tz_offset") ?? "0");
-  
-  // Obtener user_id del usuario autenticado
-  const userId = await getAuthenticatedUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  }
-  
+
   const supabase = getSupabase();
 
   // Función helper para ajustar fechas a zona horaria local
   const adjustDateToZone = (offset: number): { today: Date; yesterday: Date; weekAgo: Date } => {
     const offsetMs = offset * 3600000;
-    
+
     const today = new Date();
     today.setTime(today.getTime() + offsetMs);
     today.setUTCHours(0, 0, 0, 0);
-    
+
     const yesterday = new Date(today);
     yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-    
+
     const weekAgo = new Date(today);
     weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
-    
+
     return { today, yesterday, weekAgo };
   };
 
@@ -250,18 +244,15 @@ export async function GET(req: Request) {
       query = query.gte("printed_at", weekAgo.toISOString()) as typeof query;
     }
 
-    // Filtrar por user_id del usuario autenticado
-    query = query.eq("user_id", userId);
-    
     const { data } = await query;
     return NextResponse.json({ shipments: data ?? [] });
   }
 
   try {
-    const accounts = await getActiveAccountsForUser(userId);
+    const accounts = await getActiveAccounts();
     if (!accounts.length) return NextResponse.json({ shipments: [], full: [], in_transit: [], returns: [], delayed_unshipped: [], delayed_in_transit: [], summary: {} });
 
-    const { data: printed } = await supabase.from("meli_printed_labels").select("shipment_id, printed_at").eq("user_id", userId);
+    const { data: printed } = await supabase.from("meli_printed_labels").select("shipment_id, printed_at");
     const printedMap = new Map((printed ?? []).map((p: { shipment_id: number; printed_at: string }) => [p.shipment_id, p.printed_at]));
     const printedSet = new Set(printedMap.keys());
 
