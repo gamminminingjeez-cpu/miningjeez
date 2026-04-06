@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabase, getActiveAccountsForUser, getValidToken, meliGet, meliGetRaw, meliGetWithRetry, getAuthenticatedUserId } from "@/lib/meli";
+import { getSupabase, getActiveAccounts, getValidToken, meliGet, meliGetRaw, meliGetWithRetry } from "@/lib/meli";
 import { calculateZoneDistance, classifyFlexZone } from "@/lib/zone-calc";
 import { PDFDocument } from "pdf-lib";
 import { inflateRawSync } from "zlib";
@@ -44,8 +44,8 @@ interface ShipmentInfo {
   coupon_code?: string | null;
   thumbnail: string | null;
   item_id: string | null;
-  purchase_url?: string | null;  // URL a la compra específica en MeLi
-  printed_at?: string | null;  // NUEVO: timestamp de impresión
+  purchase_url?: string | null;  // URL a la compra especÃ­fica en MeLi
+  printed_at?: string | null;  // NUEVO: timestamp de impresiÃn
   is_printed?: boolean;        // NUEVO: derivado de printed_at
 }
 
@@ -78,7 +78,7 @@ function classifyUrgency(deliveryDate: string | null): UrgencyType {
 function statusLabel(status: string, type: LogisticType): string {
   const map: Record<string, string> = {
     ready_to_ship: type === "full" ? "Procesando en la bodega" : "Listo para despachar",
-    handling:      type === "full" ? "Procesando en la bodega" : "Preparando envío",
+    handling:      type === "full" ? "Procesando en la bodega" : "Preparando envÃ­o",
     shipped:       "En camino",
     delivered:     "Entregado",
     not_delivered: "No entregado",
@@ -122,7 +122,7 @@ function parseOrder(
   const mode      = (ship.mode as string | undefined) ?? "";
   const orderTags = (order.tags as string[] | undefined) ?? [];
   const allTags   = [...tags, ...orderTags];
-  // Tracking prefix "INVE" = Full — disponible a veces en el objeto de orden también
+  // Tracking prefix "INVE" = Full â€” disponible a veces en el objeto de orden tambiÃn
   const trackingFromOrder = String((ship.tracking_number ?? ship.tracking_id ?? "") as string).toUpperCase();
   const isFullByTracking  = trackingFromOrder.startsWith("INVE");
 
@@ -203,29 +203,23 @@ export async function GET(req: Request) {
   const action = searchParams.get("action") ?? "list";
   const format = searchParams.get("format") ?? "pdf";
   const tzOffset = parseFloat(searchParams.get("tz_offset") ?? "0");
-  
-  // Obtener user_id del usuario autenticado
-  const userId = await getAuthenticatedUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  }
-  
+
   const supabase = getSupabase();
 
   // Función helper para ajustar fechas a zona horaria local
   const adjustDateToZone = (offset: number): { today: Date; yesterday: Date; weekAgo: Date } => {
     const offsetMs = offset * 3600000;
-    
+
     const today = new Date();
     today.setTime(today.getTime() + offsetMs);
     today.setUTCHours(0, 0, 0, 0);
-    
+
     const yesterday = new Date(today);
     yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-    
+
     const weekAgo = new Date(today);
     weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
-    
+
     return { today, yesterday, weekAgo };
   };
 
@@ -250,18 +244,15 @@ export async function GET(req: Request) {
       query = query.gte("printed_at", weekAgo.toISOString()) as typeof query;
     }
 
-    // Filtrar por user_id del usuario autenticado
-    query = query.eq("user_id", userId);
-    
     const { data } = await query;
     return NextResponse.json({ shipments: data ?? [] });
   }
 
   try {
-    const accounts = await getActiveAccountsForUser(userId);
+    const accounts = await getActiveAccounts();
     if (!accounts.length) return NextResponse.json({ shipments: [], full: [], in_transit: [], returns: [], delayed_unshipped: [], delayed_in_transit: [], summary: {} });
 
-    const { data: printed } = await supabase.from("meli_printed_labels").select("shipment_id, printed_at").eq("user_id", userId);
+    const { data: printed } = await supabase.from("meli_printed_labels").select("shipment_id, printed_at");
     const printedMap = new Map((printed ?? []).map((p: { shipment_id: number; printed_at: string }) => [p.shipment_id, p.printed_at]));
     const printedSet = new Set(printedMap.keys());
 
@@ -309,7 +300,7 @@ export async function GET(req: Request) {
           }
         }
 
-        // Envíos ya despachados (para detectar demorados en tránsito)
+        // EnvÃ­os ya despachados (para detectar demorados en trÃnsito)
         const seenShipped = new Set<number>();
         for (const order of shippedResults) {
           const ship = order.shipping as Record<string, unknown> | undefined;
@@ -343,7 +334,7 @@ export async function GET(req: Request) {
       } catch { /* skip account */ }
     }));
 
-    // ── Enrichment con /shipments/{id} ─────────────────────────────────────
+    // â”€â”€ Enrichment con /shipments/{id} â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const allToEnrich = [...allShipments, ...allInTransit, ...allReturns];
     const byAccountMap = new Map<string, { token: string; ids: number[] }>();
     for (const s of allToEnrich) {
@@ -355,7 +346,7 @@ export async function GET(req: Request) {
       byAccountMap.get(s.meli_user_id)!.ids.push(s.shipment_id);
     }
 
-    // Batched enrichment — 10 shipments at a time to reduce rate-limit pressure
+    // Batched enrichment â€” 10 shipments at a time to reduce rate-limit pressure
     for (const { token, ids } of Array.from(byAccountMap.values())) {
       for (let batchStart = 0; batchStart < ids.length; batchStart += 10) {
         const batch = ids.slice(batchStart, batchStart + 10);
@@ -366,8 +357,8 @@ export async function GET(req: Request) {
             try {
               const detail = await meliGetWithRetry(`/shipments/${sid}`, token) as Record<string, unknown> | null;
               if (!detail) {
-                console.warn(`[etiquetas] Enrichment falló para shipment ${sid} (tipo actual: ${s.type})`);
-                return; // conserva el tipo que parseOrder asignó — NO se sobreescribe
+                console.warn(`[etiquetas] Enrichment fallÃ para shipment ${sid} (tipo actual: ${s.type})`);
+                return; // conserva el tipo que parseOrder asignÃ â€” NO se sobreescribe
               }
 
               const lt        = ((detail.logistic_type as string | undefined) ?? "").toLowerCase();
@@ -381,7 +372,7 @@ export async function GET(req: Request) {
 
               s.substatus = substatus || null;
 
-              // Tipo definitivo — cualquier señal de Full es suficiente
+              // Tipo definitivo â€” cualquier seÃal de Full es suficiente
               if (
                 trackingNumber.startsWith("INVE") ||
                 lt === "fulfillment" || lt.includes("fulfillment") ||
@@ -399,7 +390,7 @@ export async function GET(req: Request) {
               if (shipStatus) s.status = shipStatus;
               s.status_label = statusLabel(s.status, s.type);
 
-              // Auto-sync: si MeLi ya marcó impresa, guardar también en printed_labels (historial)
+              // Auto-sync: si MeLi ya marcÃ impresa, guardar tambiÃn en printed_labels (historial)
               if (substatus === "printed" || substatus === "label_printed") {
                 // Estampar en memoria
                 if (!s.printed_at) {
@@ -491,7 +482,7 @@ export async function GET(req: Request) {
                 s.urgency = classifyUrgency(deliveryDate);
               }
 
-              // dispatch_date: intentar multiples campos (MeLi varía la estructura)
+              // dispatch_date: intentar multiples campos (MeLi varÃ­a la estructura)
               const dispatchLimit =
                 (detail.shipping_option as Record<string, unknown> | undefined)?.estimated_handling_limit ??
                 detail.estimated_handling_limit ??
@@ -499,7 +490,7 @@ export async function GET(req: Request) {
                 detail.estimated_schedule_limit;
               s.dispatch_date = tryDate(dispatchLimit);
 
-              // Ciudad y CP del destinatario (más confiable desde /shipments/{id})
+              // Ciudad y CP del destinatario (mÃs confiable desde /shipments/{id})
               const recvAddr = detail.receiver_address as Record<string, unknown> | undefined;
               if (recvAddr) {
                 const cityObj = recvAddr.city as Record<string, unknown> | undefined;
@@ -518,7 +509,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // ── Thumbnails ────────────────────────────────────────────────────────────
+    // â”€â”€ Thumbnails â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const thumbnailMap  = new Map<string, string>();
     const itemsByAccount = new Map<string, { token: string; itemIds: string[] }>();
     for (const s of allToEnrich) {
@@ -541,7 +532,7 @@ export async function GET(req: Request) {
                 if (e.code === 200 && e.body?.id) {
                   let img = e.body.secure_thumbnail || e.body.thumbnail;
                   if (img) {
-                    // Fix duplicated protocol: http://http2.mlstatic.com → https://http2.mlstatic.com
+                    // Fix duplicated protocol: http://http2.mlstatic.com â†’ https://http2.mlstatic.com
                     img = img.replace(/^https?:\/\/https?:\/\//, "https://").replace(/^http:\/\//, "https://");
                     thumbnailMap.set(e.body.id, img);
                   }
@@ -559,7 +550,7 @@ export async function GET(req: Request) {
       if (s.item_id && thumbnailMap.has(s.item_id)) s.thumbnail = thumbnailMap.get(s.item_id)!;
     }
 
-    // ── Fallback: Enriquecimiento desde order_items si thumbnail sigue vacío ─────
+    // â”€â”€ Fallback: Enriquecimiento desde order_items si thumbnail sigue vacÃ­o â”€â”€â”€â”€â”€
     const missingThumbnails = allToEnrich.filter(s => !s.thumbnail && s.order_id);
     const ordersByAccount = new Map<string, { token: string; orderIds: number[] }>();
     for (const s of missingThumbnails) {
@@ -602,7 +593,7 @@ export async function GET(req: Request) {
       })
     );
 
-    // ── Separación final ──────────────────────────────────────────────────────
+    // â”€â”€ SeparaciÃn final â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const urgencyOrder: Record<UrgencyType, number>   = { delayed: 0, today: 1, tomorrow: 2, week: 3, upcoming: 4 };
     const typeOrder:    Record<LogisticType, number>   = { correo: 0, turbo: 1, flex: 2, full: 3 };
     allShipments.sort((a, b) => {
@@ -632,7 +623,7 @@ export async function GET(req: Request) {
     // Devoluciones: todas las not_delivered (no-full)
     const returns = allReturns.filter(s => s.type !== "full");
 
-    // Demorados en tránsito: ya despachados, delivery_date pasada
+    // Demorados en trÃnsito: ya despachados, delivery_date pasada
     const delayed_in_transit = in_transit.filter(s => isDatePast(s.delivery_date));
 
     if (action === "list") {
@@ -661,17 +652,17 @@ export async function GET(req: Request) {
       });
     }
 
-    // ── Download ───────────────────────────────────────────────────────────────
+    // â”€â”€ Download â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const selectedIds = searchParams.get("ids");
     const targetShipments = selectedIds
       ? allShipments.filter(s => s.type !== "full" && selectedIds.split(",").includes(String(s.shipment_id)))
       : pending;
 
     if (!targetShipments.length) {
-      return NextResponse.json({ error: "No hay envíos seleccionados" }, { status: 400 });
+      return NextResponse.json({ error: "No hay envÃ­os seleccionados" }, { status: 400 });
     }
 
-    // Ordenar por tipo de logística: correo → turbo → flex
+    // Ordenar por tipo de logÃ­stica: correo â†’ turbo â†’ flex
     const printOrder: Record<LogisticType, number> = { correo: 0, turbo: 1, flex: 2, full: 3 };
     targetShipments.sort((a, b) => printOrder[a.type] - printOrder[b.type]);
 
@@ -710,7 +701,7 @@ export async function GET(req: Request) {
 
     // ZPL: concatenar texto; PDF: mergear con pdf-lib
     if (format === "zpl") {
-      // MeLi returns a ZIP file for zpl2 — extract the text content
+      // MeLi returns a ZIP file for zpl2 â€” extract the text content
       const zplTexts: string[] = [];
       for (const chunk of pdfChunks) {
         const bytes = new Uint8Array(chunk);
@@ -773,7 +764,7 @@ export async function GET(req: Request) {
       });
     }
 
-    // PDF Merge — unificar todos los chunks en un solo documento
+    // PDF Merge â€” unificar todos los chunks en un solo documento
     const mergedPdf = await PDFDocument.create();
     for (const chunk of pdfChunks) {
       try {
@@ -781,8 +772,8 @@ export async function GET(req: Request) {
         const pages = await mergedPdf.copyPages(src, src.getPageIndices());
         for (const page of pages) mergedPdf.addPage(page);
       } catch {
-        // Si un chunk es inválido, lo saltamos sin romper el resto
-        console.warn("[etiquetas] Chunk de PDF inválido, saltando...");
+        // Si un chunk es invÃlido, lo saltamos sin romper el resto
+        console.warn("[etiquetas] Chunk de PDF invÃlido, saltando...");
       }
     }
 
@@ -823,7 +814,7 @@ export async function POST(req: Request) {
       action?: string;
     };
 
-    // Manejar acción "mark-printed" (nuevo batch endpoint)
+    // Manejar acciÃn "mark-printed" (nuevo batch endpoint)
     const ids = shipment_ids ?? [];
     if (!ids?.length) {
       return NextResponse.json({ error: "No shipment_ids" }, { status: 400 });
@@ -876,7 +867,7 @@ export async function POST(req: Request) {
   }
 }
 
-// ── PATCH: Cambiar estado de etiqueta ──────────────────────────────────────
+// â”€â”€ PATCH: Cambiar estado de etiqueta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export async function PATCH(req: Request) {
   try {
     const { shipment_id, status } = await req.json() as {
