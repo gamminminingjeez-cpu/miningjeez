@@ -74,37 +74,30 @@ export default function QuestionAlertGlobal() {
   const lastSoundTimeRef = useRef<number>(0);
   const MIN_SOUND_INTERVAL = 3000; // 3 segundos entre sonidos
 
-  // Función para reproducir sonido de alerta usando PRELOAD
-  const playAlertSound = useCallback((mode?: AlertMode) => {
+  // Función para reproducir sonido de alerta
+  // Crea un Audio NUEVO cada vez — más compatible con Opera GX y políticas de autoplay
+  const playAlertSound = useCallback((mode?: AlertMode, forcePlay = false) => {
     try {
-      // Solo reproducir si las alertas están habilitadas
-      if (!enabledRef.current) return;
+      if (!forcePlay && !enabledRef.current) return;
 
       const now = Date.now();
-      if (now - lastSoundTimeRef.current < MIN_SOUND_INTERVAL) return;
+      if (!forcePlay && now - lastSoundTimeRef.current < MIN_SOUND_INTERVAL) return;
       lastSoundTimeRef.current = now;
 
       const modeToPlay = mode ?? alertModeRef.current;
-      const audios = (window as any).preloadedAudios as Record<AlertMode, HTMLAudioElement> | undefined;
-      if (!audios || !audios[modeToPlay]) return;
+      const config = ALERT_MODES[modeToPlay];
 
-      // Detener TODOS los audios antes de reproducir el elegido
-      (Object.keys(audios) as AlertMode[]).forEach((key) => {
-        try {
-          audios[key].pause();
-          audios[key].currentTime = 0;
-        } catch { /* ignore */ }
-      });
+      // Detener audio anterior si existe
+      const prev = (window as any).__currentAlert as HTMLAudioElement | undefined;
+      if (prev) {
+        try { prev.pause(); prev.currentTime = 0; } catch { /* ignore */ }
+      }
 
-      const audio = audios[modeToPlay];
-      audio.volume = ALERT_MODES[modeToPlay].volume;
-      audio.currentTime = 0;
-      audio.play().catch(() => {
-        // Autoplay bloqueado — crear audio nuevo desde click context
-        const fallback = new Audio(ALERT_MODES[modeToPlay].soundFile);
-        fallback.volume = ALERT_MODES[modeToPlay].volume;
-        fallback.play().catch(() => {});
-      });
+      // Crear audio nuevo cada vez (evita problemas de contexto/autoplay en Opera GX)
+      const audio = new Audio(config.soundFile);
+      audio.volume = config.volume;
+      (window as any).__currentAlert = audio;
+      audio.play().catch(() => {});
     } catch { /* silent */ }
   }, []);
 
@@ -237,25 +230,17 @@ export default function QuestionAlertGlobal() {
       Notification.requestPermission().catch(() => {});
     }
     setEnabled(true);
+    enabledRef.current = true;
+    lastSoundTimeRef.current = 0;
 
-    // Desbloquear autoplay policy: reproducir audio silencioso desde gesto de usuario
-    // Esto permite que las alertas automáticas funcionen después
-    const audios = (window as any).preloadedAudios as Record<AlertMode, HTMLAudioElement> | undefined;
-    if (audios) {
-      (Object.keys(audios) as AlertMode[]).forEach((key) => {
-        const a = audios[key];
-        a.volume = 0;
-        a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = ALERT_MODES[key].volume; })
-          .catch(() => {});
-      });
-    }
+    // Desbloquear AudioContext (requerido por navegadores modernos)
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      ctx.resume().then(() => ctx.close()).catch(() => {});
+    } catch { /* ignore */ }
 
-    // Prueba audible para confirmar que funciona
-    setTimeout(() => {
-      enabledRef.current = true;
-      lastSoundTimeRef.current = 0; // resetear debounce
-      playAlertSound(alertMode);
-    }, 200);
+    // Reproducir sonido de prueba DIRECTO desde el click (gesto de usuario)
+    playAlertSound(alertMode, true);
   };
 
   const handleDisable = () => setEnabled(false);
@@ -304,9 +289,8 @@ export default function QuestionAlertGlobal() {
                     >
                       <button
                         onClick={() => {
-                          console.log("[MODE SELECT] Cambiando a modo:", mode);
                           setAlertMode(mode);
-                          playAlertSound(mode);
+                          playAlertSound(mode, true);
                           showModeNotification(mode);
                           setShowModeDropdown(false);
                         }}
@@ -320,7 +304,7 @@ export default function QuestionAlertGlobal() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          playAlertSound(mode);
+                          playAlertSound(mode, true);
                         }}
                         className={`ml-2 px-2 py-1 rounded text-sm transition-all ${
                           alertMode === mode
