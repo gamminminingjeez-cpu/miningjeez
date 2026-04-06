@@ -77,12 +77,24 @@ export async function POST(req: NextRequest) {
     }
 
     // PDF Merge - 3 etiquetas 10x15 cm en horizontal por hoja A4 (landscape)
-    const A4_W = 841.89;  // A4 landscape ancho
-    const A4_H = 595.28;  // A4 landscape alto
+    // A4 landscape: 297mm x 210mm = 841.89 x 595.28 puntos
+    // Etiqueta 10x15cm: 283.46 x 425.20 puntos (en portrait)
+    // Para poner 3 etiquetas de 10cm de ancho en A4 landscape (29.7cm):
+    // Necesitamos rotar las etiquetas o escalarlas
+    const A4_W = 841.89;  // A4 landscape ancho (29.7cm)
+    const A4_H = 595.28;  // A4 landscape alto (21cm)
+    
+    // Etiqueta en su orientación original (10x15cm portrait)
     const LABEL_W = 283.46; // 10 cm en puntos
     const LABEL_H = 425.20; // 15 cm en puntos
+    
+    // Para caber en A4 landscape (21cm de alto), debemos escalar
+    // El alto disponible es A4_H (21cm), la etiqueta mide 15cm de alto
+    // pero al rotarla para ponerla horizontal, el alto sería el ancho (10cm)
+    // Entonces podemos poner etiquetas de 15cm de alto en A4 de 21cm de alto
+    
     const LABELS_PER_ROW = 3;
-    const GAP = 10;
+    const GAP = 15; // Espacio entre etiquetas
 
     // Cargar todos los chunks y recopilar páginas fuente
     const srcDocs: PDFDocument[] = [];
@@ -107,14 +119,27 @@ export async function POST(req: NextRequest) {
     }
 
     const pdfDoc = await PDFDocument.create();
-
-    // Calcular escala para que quepan 3 etiquetas de 10cm en el ancho A4
-    const availableWidth = A4_W - (GAP * (LABELS_PER_ROW - 1));
-    const scale = Math.min(1, availableWidth / (LABEL_W * LABELS_PER_ROW), A4_H / LABEL_H);
+    
+    // Calcular escala para que quepan 3 etiquetas de 10cm de ancho + gaps
+    // Ancho total necesario: 3 * 10cm + 2 * gap
+    const totalWidthNeeded = (LABEL_W * LABELS_PER_ROW) + (GAP * (LABELS_PER_ROW - 1));
+    const scaleX = A4_W / totalWidthNeeded;
+    const scaleY = A4_H / LABEL_H;
+    const scale = Math.min(0.98, scaleX, scaleY); // 0.98 para dejar un pequeño margen de seguridad
+    
+    console.log(`[etiquetas] Escala calculada: ${scale}, scaleX: ${scaleX}, scaleY: ${scaleY}`);
+    console.log(`[etiquetas] Total etiquetas: ${allLabelPages.length}`);
+    
     const drawW = LABEL_W * scale;
     const drawH = LABEL_H * scale;
-    const startX = (A4_W - (drawW * LABELS_PER_ROW + GAP * (LABELS_PER_ROW - 1))) / 2;
+    
+    // Centrar horizontalmente
+    const totalRowWidth = (drawW * LABELS_PER_ROW) + (GAP * (LABELS_PER_ROW - 1));
+    const startX = (A4_W - totalRowWidth) / 2;
+    // Centrar verticalmente
     const startY = (A4_H - drawH) / 2;
+    
+    console.log(`[etiquetas] Dibujando: drawW=${drawW}, drawH=${drawH}, startX=${startX}, startY=${startY}`);
 
     // Componer paginas A4 landscape con 3 etiquetas horizontales cada una
     for (let i = 0; i < allLabelPages.length; i += LABELS_PER_ROW) {
@@ -124,10 +149,24 @@ export async function POST(req: NextRequest) {
       for (let j = 0; j < group.length; j++) {
         const { doc, idx } = group[j];
         const srcPage = doc.getPage(idx);
-        const x = startX + j * (drawW + GAP);
-        const y = startY;
+        
+        // Obtener dimensiones reales de la página fuente
+        const { width: srcWidth, height: srcHeight } = srcPage.getSize();
+        
+        // Calcular escala manteniendo proporción para esta etiqueta específica
+        const labelScaleX = drawW / srcWidth;
+        const labelScaleY = drawH / srcHeight;
+        const labelScale = Math.min(labelScaleX, labelScaleY);
+        
+        // Calcular dimensiones finales manteniendo proporción
+        const finalW = srcWidth * labelScale;
+        const finalH = srcHeight * labelScale;
+        
+        const x = startX + j * (drawW + GAP) + (drawW - finalW) / 2; // Centrar en su slot
+        const y = startY + (drawH - finalH) / 2; // Centrar verticalmente
+        
         const embedded = await pdfDoc.embedPage(srcPage);
-        a4Page.drawPage(embedded, { x, y, width: drawW, height: drawH });
+        a4Page.drawPage(embedded, { x, y, width: finalW, height: finalH });
       }
     }
 
