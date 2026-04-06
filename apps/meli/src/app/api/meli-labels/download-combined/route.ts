@@ -1,3 +1,4 @@
+// Force rebuild: v3 - 3 etiquetas por hoja A4
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { PDFDocument } from "pdf-lib";
