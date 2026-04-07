@@ -1,28 +1,38 @@
-# Changelog - MiningJeez
+# Changelog - Grid Node Tycoon
 
 ---
 
 ## 2026-04-06
 
-### Día 1: Inicialización del Proyecto
+### Día 1: Inicialización del Proyecto y GDD
 
 **Acciones realizadas:**
 - Se clonó el repositorio vacío `gamminminingjeez-cpu/miningjeez`
 - Se creó la carpeta `/docs` para documentación del proyecto
 - Se crearon los archivos base de documentación:
-  - `GDD.md` - Game Design Document (plantilla)
-  - `ROADMAP.md` - Roadmap de desarrollo por fases
+  - `GDD.md` - Game Design Document completo (v1.0.0)
+  - `ROADMAP.md` - Roadmap de desarrollo por 6 fases
   - `CHANGELOG.md` - Este archivo
 
+**GDD Completado con:**
+- High-Concept: Simulador de granja de minería cyberpunk
+- Core Loop: Minar → Liquidar → Expandir → Optimizar
+- Economía: USDT (créditos), $sSOL, $sXRP
+- Grid Stats: Hashrate, Consumo, Límite energía, Temperatura
+- Tablero 5x5 con sistema de coordenadas y sinergias por adyacencia
+- Schema de base de datos: profiles, player_wallets, inventory, grid_state, items_catalog
+- Progresión en 3 fases (Niveles 1-10, 11-20, 21+)
+- Stack: React + TypeScript + Vite + Tailwind CSS + Supabase
+
 **Notas:**
-- Repositorio vacío - desarrollo iniciado desde cero
-- Supabase configurado: https://qeqellfnbhkbulkqyobr.supabase.co
-- Metodología: Primero autenticación → Inventario → Tablero
+- Repositorio: https://github.com/gamminminingjeez-cpu/miningjeez
+- Supabase: https://qeqellfnbhkbulkqyobr.supabase.co
+- Metodología: Auth → Inventario → Tablero → Core Loop → UI → Deploy
 
 **Próximo paso:**
-- Definir el Game Design Document (GDD) con las mecánicas, economía y core loop
-- Inicializar el proyecto tecnológico (Next.js u otro framework)
-- Configurar conexión con Supabase
+- Inicializar proyecto Vite + React + TypeScript + Tailwind
+- Configurar Supabase Client
+- Implementar autenticación (login/registro)
 
 ---
 
