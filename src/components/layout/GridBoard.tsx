@@ -1,53 +1,78 @@
-import { useState } from 'react'
+import { useDroppable } from '@dnd-kit/core'
 import { motion } from 'framer-motion'
 import { clsx } from 'clsx'
+import { Cpu, Snowflake, Zap } from 'lucide-react'
+import type { GridItem } from '../../types/game'
 
 interface CellProps {
   x: number
   y: number
-  item?: { id: string; name: string; type: string }
-  onHover?: (x: number, y: number) => void
+  item: GridItem | null
 }
 
-function Cell({ x, y, item, onHover }: CellProps) {
-  const [isHovered, setIsHovered] = useState(false)
+function Cell({ x, y, item }: CellProps) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: `${x}-${y}`,
+    data: { x, y },
+  })
+
+  const renderIcon = (type: string) => {
+    switch (type) {
+      case 'gpu':
+        return <Cpu className="w-6 h-6" />
+      case 'cooler':
+        return <Snowflake className="w-6 h-6" />
+      case 'psu':
+        return <Zap className="w-6 h-6" />
+      default:
+        return null
+    }
+  }
 
   return (
     <motion.div
-      whileHover={{ scale: 1.08, zIndex: 10 }}
-      onHoverStart={() => {
-        setIsHovered(true)
-        onHover?.(x, y)
-      }}
-      onHoverEnd={() => setIsHovered(false)}
+      ref={setNodeRef}
+      whileHover={{ scale: item ? 1 : 1.05 }}
       className={clsx(
         'w-full aspect-square rounded-lg border transition-all duration-200',
-        'flex items-center justify-center cursor-pointer',
-        item
-          ? 'bg-gradient-to-br from-slate-800 to-slate-900 border-cyan-500/50 shadow-glow-cyan'
-          : 'bg-slate-900/80 border-slate-700/50',
-        isHovered && !item && 'border-cyan-400/80 shadow-glow-cyan bg-slate-800/80'
+        'flex items-center justify-center relative',
+        !item && 'bg-slate-900/80 border-slate-700/50 cursor-pointer',
+        item && 'bg-gradient-to-br from-slate-800 to-slate-900 border-cyan-500/50',
+        isOver && !item && 'border-cyan-400 shadow-glow-cyan bg-slate-800/90 scale-105'
       )}
     >
-      {item && (
+      {item ? (
         <div className="text-center">
-          <div className="text-2xl mb-1">
-            {item.type === 'gpu' && '🖥️'}
-            {item.type === 'cooler' && '❄️'}
-            {item.type === 'psu' && '⚡'}
+          <div className={clsx(
+            'w-10 h-10 rounded-lg flex items-center justify-center mx-auto mb-1',
+            item.type === 'gpu' && 'bg-gradient-to-br from-purple-600 to-pink-600',
+            item.type === 'cooler' && 'bg-gradient-to-br from-cyan-600 to-blue-600',
+            item.type === 'psu' && 'bg-gradient-to-br from-yellow-600 to-orange-600'
+          )}>
+            <div className="text-white">{renderIcon(item.type)}</div>
           </div>
-          <p className="text-[10px] font-mono text-cyan-400 truncate w-full px-1">
+          <p className="text-[9px] font-mono text-cyan-400 truncate w-full px-1">
             {item.name}
           </p>
         </div>
-      )}
-      {!item && (
+      ) : (
         <span className={clsx(
-          'text-xs font-mono transition-colors',
-          isHovered ? 'text-cyan-400/60' : 'text-slate-600'
+          'text-[10px] font-mono transition-colors',
+          isOver ? 'text-cyan-400' : 'text-slate-600'
         )}>
           {x},{y}
         </span>
+      )}
+
+      {/* Drop indicator */}
+      {isOver && !item && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="absolute inset-0 border-2 border-dashed border-cyan-400 rounded-lg flex items-center justify-center"
+        >
+          <span className="text-cyan-400 text-xs font-mono">DROP</span>
+        </motion.div>
       )}
     </motion.div>
   )
@@ -55,11 +80,10 @@ function Cell({ x, y, item, onHover }: CellProps) {
 
 interface GridBoardProps {
   gridSize?: number
-  gridState?: Array<Array<{ id: string; name: string; type: string } | null>>
-  onCellHover?: (x: number, y: number) => void
+  gridState?: (GridItem | null)[][]
 }
 
-export function GridBoard({ gridSize = 5, gridState, onCellHover }: GridBoardProps) {
+export function GridBoard({ gridSize = 5, gridState }: GridBoardProps) {
   // Initialize empty grid if not provided
   const displayGrid = gridState || Array(gridSize).fill(null).map(() => Array(gridSize).fill(null))
 
@@ -90,8 +114,7 @@ export function GridBoard({ gridSize = 5, gridState, onCellHover }: GridBoardPro
               key={`${x}-${y}`}
               x={x}
               y={y}
-              item={cell || undefined}
-              onHover={onCellHover}
+              item={cell || null}
             />
           ))
         )}
@@ -100,13 +123,16 @@ export function GridBoard({ gridSize = 5, gridState, onCellHover }: GridBoardPro
       {/* Legend */}
       <div className="mt-4 pt-4 border-t border-slate-700/50 flex items-center justify-center gap-6">
         <div className="flex items-center gap-2 text-xs text-slate-400">
-          <span>🖥️ GPU</span>
+          <Cpu className="w-4 h-4 text-purple-400" />
+          <span>GPU</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-400">
-          <span>❄️ COOLER</span>
+          <Snowflake className="w-4 h-4 text-cyan-400" />
+          <span>COOLER</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-400">
-          <span>⚡ PSU</span>
+          <Zap className="w-4 h-4 text-yellow-400" />
+          <span>PSU</span>
         </div>
       </div>
     </motion.div>
