@@ -7,6 +7,7 @@ import { Sidebar } from './components/layout/Sidebar'
 import { GridBoard } from './components/layout/GridBoard'
 import { InventoryPanel } from './components/layout/InventoryPanel'
 import { ExchangePanel } from './components/layout/ExchangePanel'
+import { OfflineEarningsModal } from './components/layout/OfflineEarningsModal'
 import { useAuthStore } from './store/useAuthStore'
 import { useGameStore } from './store/useGameStore'
 import { supabase } from './lib/supabase'
@@ -19,11 +20,16 @@ function App() {
   const { user, setSession, clearSession } = useAuthStore()
   const { 
     inventory, grid, placeItem, totalHashrate, totalConsumption, energyLimit, avgTemperature, 
-    setInventory, credits, sSol, sXrp, setGrid, addCrypto, setCredits 
+    setInventory, credits, sSol, sXrp, setGrid, setCredits 
   } = useGameStore()
   const [isLoading, setIsLoading] = useState(true)
   const [isHydrated, setIsHydrated] = useState(false)
   const [isExchangeOpen, setIsExchangeOpen] = useState(false)
+  const [offlineEarnings, setOfflineEarnings] = useState<{
+    sSol: number
+    sXrp: number
+    secondsOffline: number
+  } | null>(null)
 
   // Autosave hook
   const { syncStatus, lastSync, syncNow } = useAutosave(user?.id)
@@ -86,20 +92,36 @@ function App() {
           setInventory(getInitialInventory())
         }
 
-        // Calculate offline earnings
+        // Calculate offline earnings BEFORE restoring grid stats
         if (data.wallet?.last_updated) {
+          // Get the hashrate from the grid BEFORE calculating stats
+          let storedHashrate = 0
+          for (let y = 0; y < 5; y++) {
+            for (let x = 0; x < 5; x++) {
+              const item = newGrid[y]?.[x]?.item
+              if (item?.type === 'gpu') {
+                storedHashrate += item.hashrate
+              }
+            }
+          }
+          
+          const now = Date.now()
+          const lastTime = new Date(data.wallet.last_updated).getTime()
+          const secondsOffline = Math.min((now - lastTime) / 1000, 86400)
+          
+          const isOverloaded = false // Can't know without stored energy limit
+          const isThrottling = false
+          
           const { sSol: offlineSol, sXrp: offlineXrp } = calculateOfflineEarnings(
             data.wallet.last_updated,
-            totalHashrate,
-            totalConsumption > energyLimit,
-            avgTemperature >= 90
+            storedHashrate,
+            isOverloaded,
+            isThrottling
           )
-          if (offlineSol > 0 || offlineXrp > 0) {
-            addCrypto(offlineSol, offlineXrp)
-            toast.success('¡Bienvenido de vuelta!', {
-              description: `Generaste ${offlineSol.toFixed(4)} $sSOL mientras estabas fuera`,
-              style: { background: '#1e293b', border: '1px solid rgba(34, 211, 238, 0.3)', color: '#22d3ee' }
-            })
+          
+          if ((offlineSol > 0 || offlineXrp > 0) && secondsOffline > 60) {
+            // Show offline earnings modal instead of toast
+            setOfflineEarnings({ sSol: offlineSol, sXrp: offlineXrp, secondsOffline })
           }
         }
       } else {
@@ -141,23 +163,18 @@ function App() {
       return
     }
 
-    // Deduct credits
     const newCredits = credits - item.price
     setCredits(newCredits)
 
-    // Add to inventory
     const newInventory = [...inventory, item]
     setInventory(newInventory)
 
-    // Save to Supabase
     if (user) {
       try {
-        // Update wallet
         await supabase
           .from('player_wallets')
           .upsert({ user_id: user.id, credits: newCredits }, { onConflict: 'user_id' })
 
-        // Add to inventory
         await supabase
           .from('inventory')
           .insert({ user_id: user.id, item_id: item.id, instance_id: item.instanceId, status: 'en_inventario' })
@@ -193,11 +210,15 @@ function App() {
         const y = parseInt(parts[1], 10)
         if (!isNaN(x) && !isNaN(y)) {
           placeItem(active.id.toString(), x, y)
-          // Immediate sync on item placement
           syncNow()
         }
       }
     }
+  }
+
+  // Handle close offline modal
+  const handleCloseOfflineModal = () => {
+    setOfflineEarnings(null)
   }
 
   if (!user) {
@@ -309,6 +330,13 @@ function App() {
         isOpen={isExchangeOpen}
         onClose={() => setIsExchangeOpen(false)}
         userId={user.id}
+      />
+
+      {/* Offline Earnings Modal */}
+      <OfflineEarningsModal
+        isOpen={offlineEarnings !== null}
+        onClose={handleCloseOfflineModal}
+        earnings={offlineEarnings || { sSol: 0, sXrp: 0, secondsOffline: 0 }}
       />
 
       {/* Toaster for notifications */}

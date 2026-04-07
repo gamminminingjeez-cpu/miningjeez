@@ -4,39 +4,35 @@
 
 ## 2026-04-06
 
-### Exchange / Mercado Cripto Implementado
+### Fase 7: Offline Earnings y Bienvenida Implementados
 
 **Acciones realizadas:**
 
-1. **Recharts instalado** - Librería de gráficos financieros
+1. **OfflineEarningsModal.tsx creado:**
+   - Modal premium glassmorphism con animación de entrada
+   - Contador animado para mostrar ganancias
+   - Muestra tiempo offline, $sSOL y $sXRP ganados
+   - Botón "RECLAMAR GANANCIAS"
+   - Valor total estimado en USDT
 
-2. **Store actualizado (`useGameStore.ts`):**
-   - Estado de precios de mercado: `priceSOL`, `priceXRP`
-   - `priceHistory` array (últimos 20 valores)
-   - `updateMarketPrices()` action
-   - `sellCrypto()` action
+2. **Cálculo de ganancias offline:**
+   - Al hacer login, compara `last_updated` con hora actual
+   - Calcula producción basada en hashrate del grid guardado
+   - Solo muestra modal si pasaron >60 segundos y hay ganancias
+   - 50% de eficiencia (como en GDD)
 
-3. **useGameLoop actualizado:**
-   - Fluctuación de precios cada 5 segundos (±5%)
-   - Precios se mantienen en rango 50%-200% del valor inicial
-
-4. **ExchangePanel.tsx creado:**
-   - Modal con gráficos AreaChart de Recharts
-   - Gráficos para $sSOL (púrpura) y $sXRP (cian)
-   - Indicador de tendencia (arriba/abajo)
-   - Paneles de venta con botón "VENDER TODO"
-   - Sincronización con Supabase al vender
-
-5. **Header actualizado:**
-   - Botón "MERCADO" que abre el Exchange
+3. **App.tsx actualizado:**
+   - Estado `offlineEarnings` para el modal
+   - Lógica de cálculo de hashrate desde grid restaurado
+   - Integración con OfflineEarningsModal
 
 **Funcionalidades:**
-- Gráficos de precios en tiempo real
-- Fluctuación de mercado cada 5 segundos
-- Vender $sSOL y $sXRP por USDT
-- Precios afectan la ganancia
+- Ganancias offline al volver al juego
+- Modal de bienvenida premium
+- Animaciones de contador
+- Eficiencia 50% mientras offline
 
-**Build:** ✓ OK (942KB - warning de chunk size)
+**Build:** ✓ OK (948KB - warning chunk size)
 
 **Repo:** https://github.com/gamminminingjeez-cpu/miningjeez
 
@@ -44,22 +40,17 @@
 
 ## Registros Anteriores
 
-### Fase 6 (Parcial): Tienda
-- Sonner para notificaciones
+### Exchange / Mercado Cripto
+- Recharts para gráficos financieros
+- Fluctuación de precios cada 5s
+- Venta de cryptos con Supabase
+
+### Tienda
+- Sonner notificaciones
 - Tabs Inventario/Tienda
-- Sistema de compras
 
-### Fase 5: Game Loop y Sinergias
-- Motor de stats
-- Adyacencias cooler → GPU
-- useGameLoop hook
+### Game Loop y Sinergias
+- Motor de stats, adyacencias
 
-### Fase 4: Drag & Drop
-- dnd-kit
-- Inventario draggable, Grid droppable
-
-### Fase 3: Layout UI
-- Glassmorphism, framer-motion
-
-### Fase 1: Setup y Auth
-- Proyecto, Supabase, Zustand
+### Drag & Drop, Layout, Auth
+- Ver commits anteriores
