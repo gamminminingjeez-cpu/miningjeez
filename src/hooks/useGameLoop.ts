@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useGameStore } from '../store/useGameStore'
+import { audioManager } from '../lib/audioManager'
 
 const TICK_INTERVAL = 1000 // 1 second
 const SAVE_INTERVAL = 30000 // Save to DB every 30 seconds
@@ -59,8 +60,9 @@ export function useGameLoop() {
         // SOL Bot
         if (bots.sSOL.active && sSol > 0 && newSOL >= bots.sSOL.targetPrice) {
           const success = sellCrypto(sSol, 'sSol')
-          if (success && toastFunction) {
-            toastFunction(`🤖 Bot $sSOL ejecutado: Venta automática completada`, {
+          if (success) {
+            audioManager.playCashSound()
+            toastFunction?.(`🤖 Bot $sSOL ejecutado: Venta automática completada`, {
               description: `Vendiste ${sSol.toFixed(6)} $sSOL a $${newSOL.toFixed(4)}`,
               style: {
                 background: '#1e293b',
@@ -74,8 +76,9 @@ export function useGameLoop() {
         // XRP Bot
         if (bots.sXRP.active && sXrp > 0 && newXRP >= bots.sXRP.targetPrice) {
           const success = sellCrypto(sXrp, 'sXrp')
-          if (success && toastFunction) {
-            toastFunction(`🤖 Bot $sXRP ejecutado: Venta automática completada`, {
+          if (success) {
+            audioManager.playCashSound()
+            toastFunction?.(`🤖 Bot $sXRP ejecutado: Venta automática completada`, {
               description: `Vendiste ${sXrp.toFixed(6)} $sXRP a $${newXRP.toFixed(4)}`,
               style: {
                 background: '#1e293b',

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { DndContext, type DragEndEvent, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { motion } from 'framer-motion'
 import { Toaster, toast } from 'sonner'
 import { Header } from './components/layout/Header'
@@ -15,6 +15,7 @@ import { getInitialInventory } from './lib/mockData'
 import { useAutosave, loadPlayerData, calculateOfflineEarnings } from './hooks/useAutosave'
 import { mockCatalog } from './lib/mockData'
 import { setToastFunction } from './hooks/useGameLoop'
+import { audioManager } from './lib/audioManager'
 import type { GridItem } from './types/game'
 
 // Set up toast function for game loop
@@ -158,6 +159,7 @@ function App() {
   // Handle purchase
   const handlePurchase = async (item: GridItem) => {
     if (credits < item.price) {
+      audioManager.playErrorSound()
       toast.error('Fondos insuficientes')
       return
     }
@@ -167,6 +169,8 @@ function App() {
 
     const newInventory = [...inventory, item]
     setInventory(newInventory)
+
+    audioManager.playPurchaseSound()
 
     if (user) {
       try {
@@ -193,39 +197,50 @@ function App() {
     const cost = (gridSize + 1) * 10000
     
     if (credits < cost) {
+      audioManager.playErrorSound()
       toast.error('Fondos insuficientes para expandir')
       return
     }
 
     const success = expandGrid()
     
-    if (success && user) {
-      try {
-        await supabase
-          .from('player_wallets')
-          .upsert({ 
-            user_id: user.id, 
-            credits: credits - cost,
-            grid_size: gridSize + 1
-          }, { onConflict: 'user_id' })
+    if (success) {
+      audioManager.playSuccessSound()
+      
+      if (user) {
+        try {
+          await supabase
+            .from('player_wallets')
+            .upsert({ 
+              user_id: user.id, 
+              credits: credits - cost,
+              grid_size: gridSize + 1
+            }, { onConflict: 'user_id' })
 
-        toast.success(`¡Granja expandida a ${gridSize + 1}x${gridSize + 1}!`, {
-          description: ` gastaste ${cost.toLocaleString()} USDT`,
-          style: { background: '#1e293b', border: '1px solid rgba(34, 211, 238, 0.5)', color: '#22d3ee' }
-        })
-        
-        syncNow()
-      } catch (error) {
-        console.error('Expand save failed:', error)
+          toast.success(`¡Granja expandida a ${gridSize + 1}x${gridSize + 1}!`, {
+            description: ` gastaste ${cost.toLocaleString()} USDT`,
+            style: { background: '#1e293b', border: '1px solid rgba(34, 211, 238, 0.5)', color: '#22d3ee' }
+          })
+          
+          syncNow()
+        } catch (error) {
+          console.error('Expand save failed:', error)
+        }
       }
     }
   }
 
-  // DnD sensors
+  // DnD sensors - Mouse and Touch support for mobile
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
       activationConstraint: {
         distance: 8,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 8,
       },
     })
   )
@@ -242,6 +257,7 @@ function App() {
         const y = parseInt(parts[1], 10)
         if (!isNaN(x) && !isNaN(y)) {
           placeItem(active.id.toString(), x, y)
+          audioManager.playDropSound()
           syncNow()
         }
       }

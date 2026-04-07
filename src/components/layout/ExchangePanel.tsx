@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import { useGameStore } from '../../store/useGameStore'
 import { supabase } from '../../lib/supabase'
 import { TradingBotPanel } from './TradingBotPanel'
+import { audioManager } from '../../lib/audioManager'
 
 interface ExchangePanelProps {
   isOpen: boolean
@@ -44,11 +45,13 @@ export function ExchangePanel({ isOpen, onClose, userId }: ExchangePanelProps) {
     const price = currency === 'sSol' ? priceSOL : priceXRP
     
     if (amount <= 0) {
+      audioManager.playErrorSound()
       toast.error('No tienes monedas para vender')
       return
     }
 
     setSelling(currency)
+    audioManager.playCashSound()
     
     const earnings = amount * price
     const success = sellCrypto(amount, currency)
