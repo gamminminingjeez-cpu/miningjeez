@@ -1,40 +1,30 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { supabase } from './lib/supabase'
+import { useAuthStore } from './store/useAuthStore'
 import { Auth } from './components/Auth'
-import type { Session } from '@supabase/supabase-js'
 
 function App() {
-  const [session, setSession] = useState<Session | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { user, setSession, clearSession } = useAuthStore()
 
   useEffect(() => {
-    // Check current session
+    // Check current session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      setLoading(false)
     })
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
+      if (session) {
+        setSession(session)
+      } else {
+        clearSession()
+      }
     })
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, [setSession, clearSession])
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-cyber-bg flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-cyber-cyan font-mono text-xl animate-pulse">
-            CARGANDO...
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!session) {
+  if (!user) {
     return <Auth />
   }
 
@@ -45,12 +35,13 @@ function App() {
         <h1 className="text-5xl font-mono font-bold text-cyber-cyan text-glow-cyan mb-4">
           Grid Node Tycoon
         </h1>
-        <p className="text-xl text-cyber-purple font-mono text-glow-purple mb-4">
-          Bienvenido, {session.user.email}
+        <p className="text-xl text-cyber-purple font-mono text-glow-purple mb-2">
+          Bienvenido, {user.email}
         </p>
         <div className="glass-panel p-6 inline-block">
           <p className="text-cyber-green font-mono">✓ Supabase Connected</p>
           <p className="text-cyber-green font-mono">✓ Session Active</p>
+          <p className="text-cyber-green font-mono">✓ Zustand Store Active</p>
           <p className="text-cyber-green font-mono">✓ Ready to Play</p>
         </div>
         <div className="mt-6">

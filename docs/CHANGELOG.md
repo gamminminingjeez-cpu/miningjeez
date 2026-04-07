@@ -4,53 +4,57 @@
 
 ## 2026-04-06
 
-### Día 1: Proyecto Inicializado y Supabase Conectado
+### Estado Actual: Fase 1 Completa - Fase 2 Iniciada
 
 **Acciones realizadas:**
 
-1. **Documentación:**
-   - Se creó `/docs/GDD.md` con Game Design Document completo v1.0.0
-   - Se creó `/docs/ROADMAP.md` con 7 fases detalladas
-   - Se creó `/docs/CHANGELOG.md` (este archivo)
+1. **Infraestructura del Proyecto (Fase 1 - Setup):**
+   - Proyecto Vite + React + TypeScript inicializado
+   - Tailwind CSS v3 con tema ciberpunk configurado
+   - Estructura de carpetas: `components/`, `hooks/`, `lib/`, `pages/`, `store/`, `types/`
+   - Build verificado correctamente
 
-2. **Infraestructura del Proyecto (Fase 1 - Setup):**
-   - Se inicializó proyecto Vite + React + TypeScript
-   - Se instaló y configuró Tailwind CSS v3 con tema ciberpunk
-   - Se crearon carpetas: `components/`, `hooks/`, `lib/`, `pages/`, `store/`, `types/`
-   - Se configuró `tailwind.config.js` con colores cyberpunk (cyan, purple, green)
-   - Se configuró `index.css` con estilos base y utilidades glassmorphism
-   - Compilación exitosa (build verificado)
+2. **Supabase y Autenticación (Fase 1 - Auth):**
+   - `@supabase/supabase-js` instalado
+   - `src/lib/supabase.ts` - Cliente de Supabase configurado
+   - `.env.local` con variables placeholder
+   - `src/components/Auth.tsx` - UI de Login/Register ciberpunk
+   - Build OK
 
-3. **Supabase y Autenticación (Fase 1 - Auth):**
-   - Se instaló `@supabase/supabase-js`
-   - Se creó `src/lib/supabase.ts` - Cliente de Supabase configurado
-   - Se creó `.env.local` con variables `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` (vacías)
-   - Se creó `src/components/Auth.tsx` - UI de Login/Register con diseño ciberpunk
-   - Se actualizó `App.tsx` para detectar sesión y mostrar Auth o contenido según corresponda
-   - Se agregó lógica de `onAuthStateChange` para detectar cambios de sesión en tiempo real
-   - Se agregó botón "Cerrar Sesión"
+3. **Estado Global con Zustand (Fase 1 - Final):**
+   - `zustand` instalado
+   - `src/store/useAuthStore.ts` - Store de autenticación creado
+   - `App.tsx` refactorizado con Zustand y `onAuthStateChange`
+   - Sesión se actualiza automáticamente al iniciar/cerrar sesión
+   - Build OK
 
-**Stack configurado:**
-- React 18 + TypeScript
-- Vite 5
-- Tailwind CSS 3
-- Supabase Client (@supabase/supabase-js)
+**Schema SQL para ejecutar en Supabase (pending user):**
+```sql
+-- 1. Tabla de Perfiles
+CREATE TABLE public.profiles (...);
 
-**Estado del proyecto:** Compila correctamente, auth preparado.
+-- 2. Tabla de Billeteras (1000 créditos iniciales)
+CREATE TABLE public.player_wallets (...);
 
-**Notas:**
-- Repo: https://github.com/gamminminingjeez-cpu/miningjeez
-- Supabase: https://qeqellfnbhkbulkqyobr.supabase.co
-- **Pendiente:** Usuario debe agregar credenciales reales en `.env.local`
+-- 3. Trigger para creación automática
+CREATE OR REPLACE FUNCTION public.handle_new_user()...;
+CREATE TRIGGER on_auth_user_created...;
+```
+
+**Stack:**
+- React 18 + TypeScript + Vite 5
+- Tailwind CSS 3 (tema ciberpunk)
+- Supabase Client + Zustand
+- Build: ✓ OK
+
+**Repo:** https://github.com/gamminminingjeez-cpu/miningjeez
+**Supabase:** https://qeqellfnbhkbulkqyobr.supabase.co
 
 **Próximo paso:**
-- Agregar credenciales de Supabase en `.env.local`
-- Crear tablas en Supabase (profiles, player_wallets, inventory, grid_state)
-- Continuar con Fase 2 del Roadmap
+- Ejecutar SQL en Supabase para crear tables (profiles, player_wallets)
+- Crear hooks usePlayer, useWallet
+- Avanzar a Fase 2
 
 ---
 
-## Registros Anteriores
-
-### 2026-04-06 - Inicialización (上午)
-- Repositorio clonado y documentación base creada.
+*Para registrar nuevos cambios, agregar una nueva entrada al inicio con la fecha.*
