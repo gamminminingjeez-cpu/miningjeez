@@ -13,7 +13,8 @@ interface TradingBot {
 }
 
 interface GameState {
-  // Grid state (5x5)
+  // Grid state (dynamic size)
+  gridSize: number
   grid: GridCell[][]
   
   // Inventory
@@ -47,6 +48,7 @@ interface GameState {
   isThrottling: boolean
   
   // Actions
+  setGridSize: (size: number) => void
   setInventory: (items: GridItem[]) => void
   setCredits: (credits: number) => void
   setGrid: (grid: GridCell[][]) => void
@@ -58,29 +60,32 @@ interface GameState {
   updateMarketPrices: (sol: number, xrp: number) => void
   setBotActive: (currency: 'sSOL' | 'sXRP', active: boolean) => void
   setBotTargetPrice: (currency: 'sSOL' | 'sXRP', price: number) => void
+  expandGrid: () => boolean
   resetGame: () => void
 }
 
-const GRID_SIZE = 5
+const DEFAULT_GRID_SIZE = 5
+const MAX_GRID_SIZE = 10
 const SYNERGY_COOLING_PER_ADJACENT_COOLER = 15
 const MAX_PRICE_HISTORY = 20
 
-const createEmptyGrid = (): GridCell[][] =>
-  Array(GRID_SIZE).fill(null).map((_, y) =>
-    Array(GRID_SIZE).fill(null).map((_, x) => ({ x, y, item: null }))
+const createGrid = (size: number): GridCell[][] =>
+  Array(size).fill(null).map((_, y) =>
+    Array(size).fill(null).map((_, x) => ({ x, y, item: null }))
   )
 
-const getAdjacentPositions = (x: number, y: number): [number, number][] => {
+const getAdjacentPositions = (x: number, y: number, gridSize: number): [number, number][] => {
   const adjacent: [number, number][] = []
   if (x > 0) adjacent.push([x - 1, y])
-  if (x < GRID_SIZE - 1) adjacent.push([x + 1, y])
+  if (x < gridSize - 1) adjacent.push([x + 1, y])
   if (y > 0) adjacent.push([x, y - 1])
-  if (y < GRID_SIZE - 1) adjacent.push([x, y + 1])
+  if (y < gridSize - 1) adjacent.push([x, y + 1])
   return adjacent
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
-  grid: createEmptyGrid(),
+  gridSize: DEFAULT_GRID_SIZE,
+  grid: createGrid(DEFAULT_GRID_SIZE),
   inventory: [],
   credits: 1000,
   sSol: 0,
@@ -105,6 +110,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   isOverloaded: false,
   isThrottling: false,
 
+  setGridSize: (size) => set({ gridSize: size }),
+
   setInventory: (items) => set({ inventory: items }),
 
   setCredits: (credits) => set({ credits }),
@@ -112,7 +119,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   setGrid: (grid) => set({ grid }),
 
   placeItem: (instanceId, x, y) => {
-    const { inventory, grid } = get()
+    const { inventory, grid, gridSize } = get()
+    
+    // Bounds check
+    if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) return
     
     const itemIndex = inventory.findIndex(item => item.instanceId === instanceId)
     if (itemIndex === -1) return
@@ -129,7 +139,11 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   removeItem: (x, y) => {
-    const { grid, inventory } = get()
+    const { grid, inventory, gridSize } = get()
+    
+    // Bounds check
+    if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) return
+    
     const cell = grid[y][x]
     if (!cell.item) return
     
@@ -142,7 +156,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   calculateStats: () => {
-    const { grid } = get()
+    const { grid, gridSize } = get()
     
     let totalHashrate = 0
     let totalConsumption = 0
@@ -151,9 +165,9 @@ export const useGameStore = create<GameState>((set, get) => ({
     let gpuCount = 0
     let gpuTotalTemp = 0
     
-    for (let y = 0; y < GRID_SIZE; y++) {
-      for (let x = 0; x < GRID_SIZE; x++) {
-        const item = grid[y][x].item
+    for (let y = 0; y < gridSize; y++) {
+      for (let x = 0; x < gridSize; x++) {
+        const item = grid[y]?.[x]?.item
         if (!item) continue
         
         if (item.type === 'psu') {
@@ -173,16 +187,16 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
     
     let adjacencyBonus = 0
-    for (let y = 0; y < GRID_SIZE; y++) {
-      for (let x = 0; x < GRID_SIZE; x++) {
-        const item = grid[y][x].item
+    for (let y = 0; y < gridSize; y++) {
+      for (let x = 0; x < gridSize; x++) {
+        const item = grid[y]?.[x]?.item
         if (!item || item.type !== 'gpu') continue
         
-        const adjacentPositions = getAdjacentPositions(x, y)
+        const adjacentPositions = getAdjacentPositions(x, y, gridSize)
         let coolerCount = 0
         
         for (const [ax, ay] of adjacentPositions) {
-          const adjacentItem = grid[ay][ax].item
+          const adjacentItem = grid[ay]?.[ax]?.item
           if (adjacentItem?.type === 'cooler') {
             coolerCount++
           }
@@ -264,7 +278,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   setBotTargetPrice: (currency, price) => {
     const { bots } = get()
-    if (price < 0) return // Validate no negative prices
+    if (price < 0) return
     if (currency === 'sSOL') {
       set({ bots: { ...bots, sSOL: { ...bots.sSOL, targetPrice: price } } })
     } else {
@@ -272,9 +286,32 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
   },
 
+  expandGrid: () => {
+    const { gridSize, credits } = get()
+    
+    if (gridSize >= MAX_GRID_SIZE) return false
+    
+    // Exponential cost: gridSize * 10000
+    const cost = (gridSize + 1) * 10000
+    
+    if (credits < cost) return false
+    
+    const newSize = gridSize + 1
+    const newGrid = createGrid(newSize)
+    
+    set({
+      gridSize: newSize,
+      grid: newGrid,
+      credits: credits - cost
+    })
+    
+    return true
+  },
+
   resetGame: () => {
     set({
-      grid: createEmptyGrid(),
+      gridSize: DEFAULT_GRID_SIZE,
+      grid: createGrid(DEFAULT_GRID_SIZE),
       inventory: [],
       credits: 1000,
       sSol: 0,

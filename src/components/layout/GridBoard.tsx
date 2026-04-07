@@ -113,12 +113,22 @@ function Cell({ x, y, item, isOverheating = false }: CellProps) {
 }
 
 interface GridBoardProps {
-  gridSize?: number
+  gridSize: number
   gridState?: (GridItem | null)[][]
   isOverheating?: boolean
+  onExpandClick?: () => void
+  expandCost?: number
+  canExpand?: boolean
 }
 
-export function GridBoard({ gridSize = 5, gridState, isOverheating = false }: GridBoardProps) {
+export function GridBoard({ 
+  gridSize, 
+  gridState, 
+  isOverheating = false,
+  onExpandClick,
+  expandCost,
+  canExpand = false
+}: GridBoardProps) {
   const displayGrid = gridState || Array(gridSize).fill(null).map(() => Array(gridSize).fill(null))
 
   return (
@@ -137,13 +147,29 @@ export function GridBoard({ gridSize = 5, gridState, isOverheating = false }: Gr
           )} />
           THE GRID
         </h2>
-        <span className="text-xs text-slate-400 font-mono">{gridSize}x{gridSize} SLOTS</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-400 font-mono">{gridSize}x{gridSize} SLOTS</span>
+          {expandCost !== undefined && onExpandClick && (
+            <button
+              onClick={onExpandClick}
+              disabled={!canExpand}
+              className={clsx(
+                'px-3 py-1 rounded-lg text-xs font-mono transition-all',
+                canExpand
+                  ? 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/40 border border-cyan-500/50'
+                  : 'bg-slate-800/50 text-slate-500 border border-slate-700/50 cursor-not-allowed'
+              )}
+            >
+              EXPANDIR ({expandCost.toLocaleString()} USDT)
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Grid */}
       <div
         className="grid gap-2"
-        style={{ gridTemplateColumns: `repeat(${gridSize}, 1fr)` }}
+        style={{ gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))` }}
       >
         {displayGrid.map((row, y) =>
           row.map((cell, x) => (

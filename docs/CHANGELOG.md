@@ -4,38 +4,41 @@
 
 ## 2026-04-06
 
-### Trading Bots Implementados (Late Game Automation)
+### Expansión del Tablero Implementada (Grid Dinámico)
 
 **Acciones realizadas:**
 
-1. **TradingBotPanel.tsx creado:**
-   - Toggle ciberpunk (rojo OFF / verde ON)
-   - Input para precio objetivo
-   - Indicador "MONITOREANDO MERCADO" animado
-   - Stats: precio actual, balance, ganancia potencial, distancia %
+1. **Store actualizado (useGameStore.ts):**
+   - Estado `gridSize` dinámico (5 por defecto, hasta 10 máximo)
+   - Función `expandGrid()` que incrementa gridSize +1
+   - Costo exponencial: `(gridSize + 1) * 10000` USDT
+   - Grid se recrea con el nuevo tamaño al expandir
+   - Lógica de bounds check para placement de items
 
-2. **Store actualizado (useGameStore.ts):**
-   - Estado `bots: { sSOL: {active, targetPrice}, sXRP: {active, targetPrice} }`
-   - Funciones `setBotActive()` y `setBotTargetPrice()`
-   - Validación de precios negativos
+2. **GridBoard actualizado:**
+   - Props: `gridSize`, `expandCost`, `canExpand`, `onExpandClick`
+   - Grid dinámico: `gridTemplateColumns: repeat(${gridSize}, minmax(0, 1fr))`
+   - Botón "EXPANDIR" que muestra costo y disponibilidad
+   - Tamaño máximo 10x10
 
-3. **useGameLoop actualizado:**
-   - Lógica de venta automática cuando precio >= targetPrice
-   - Toast de confirmación cuando bot ejecuta venta
-   - Soporte para ambos bots (SOL y XRP)
+3. **App.tsx actualizado:**
+   - Carga `grid_size` desde Supabase al hydrating
+   - Handler `handleExpand` que conecta con Supabase
+   - Validación de fondos y actualización de wallet
 
-4. **ExchangePanel actualizado:**
-   - Sección de Trading Bots integrada
-   - Paneles de bots al lado de los gráficos
+4. **SQL necesario (ejecutar en Supabase):**
+   ```sql
+   ALTER TABLE public.player_wallets
+   ADD COLUMN grid_size integer DEFAULT 5;
+   ```
 
-**Funcionalidades:**
-- Bots de Grid Spot para venta automática
-- Configurar precio objetivo por moneda
-- Toggle ON/OFF con animaciones
-- Monitoreo de mercado en tiempo real
-- Ejecución automática al alcanzar precio objetivo
+**Costo de expansión:**
+- 5x5 → 6x6: 60,000 USDT
+- 6x6 → 7x7: 70,000 USDT
+- 7x7 → 8x8: 80,000 USDT
+- ... hasta 10x10
 
-**Build:** ✓ OK (952KB - warning chunk)
+**Build:** ✓ OK (953KB - warning chunk)
 
 **Repo:** https://github.com/gamminminingjeez-cpu/miningjeez
 
@@ -43,13 +46,17 @@
 
 ## Registros Anteriores
 
+### Trading Bots
+- Toggle ON/OFF con monitoreo de mercado
+- Ejecución automática al alcanzar precio objetivo
+
 ### Offline Earnings Modal
 - Modal premium con contador animado
-- Cálculo de ganancias offline
+- 50% eficiencia offline
 
 ### Exchange / Mercado Cripto
 - Recharts para gráficos financieros
-- Fluctuación de precios
+- Fluctuación de precios cada 5s
 
 ### Tienda, Game Loop, Drag & Drop, Layout, Auth
 - Ver commits anteriores

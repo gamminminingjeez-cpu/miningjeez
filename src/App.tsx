@@ -23,8 +23,8 @@ setToastFunction((message, options) => toast(message, options))
 function App() {
   const { user, setSession, clearSession } = useAuthStore()
   const { 
-    inventory, grid, placeItem, totalHashrate, totalConsumption, energyLimit, avgTemperature, 
-    setInventory, credits, sSol, sXrp, setGrid, setCredits 
+    inventory, grid, gridSize, placeItem, totalHashrate, totalConsumption, energyLimit, avgTemperature, 
+    setInventory, credits, sSol, sXrp, setGrid, setCredits, expandGrid
   } = useGameStore()
   const [isLoading, setIsLoading] = useState(true)
   const [isHydrated, setIsHydrated] = useState(false)
@@ -53,22 +53,24 @@ function App() {
       
       if (data) {
         // Restore wallet
+        const savedGridSize = data.wallet?.grid_size || 5
         useGameStore.setState({
           credits: data.wallet?.credits ?? 1000,
           sSol: data.wallet?.s_sol ?? 0,
-          sXrp: data.wallet?.s_xrp ?? 0
+          sXrp: data.wallet?.s_xrp ?? 0,
+          gridSize: savedGridSize
         })
 
-        // Restore grid from grid_state
-        const newGrid = Array(5).fill(null).map((_, y) =>
-          Array(5).fill(null).map((_, x) => ({ x, y, item: null as GridItem | null }))
+        // Create grid with correct size
+        const newGrid = Array(savedGridSize).fill(null).map((_, y) =>
+          Array(savedGridSize).fill(null).map((_, x) => ({ x, y, item: null as GridItem | null }))
         )
         
         if (data.grid && data.grid.length > 0) {
           for (const cell of data.grid) {
             const itemId = cell.item_id
             const catalogItem = mockCatalog.find(i => i.id === itemId)
-            if (catalogItem && cell.pos_x >= 0 && cell.pos_x < 5 && cell.pos_y >= 0 && cell.pos_y < 5) {
+            if (catalogItem && cell.pos_x >= 0 && cell.pos_x < savedGridSize && cell.pos_y >= 0 && cell.pos_y < savedGridSize) {
               newGrid[cell.pos_y][cell.pos_x] = {
                 x: cell.pos_x,
                 y: cell.pos_y,
@@ -96,12 +98,11 @@ function App() {
           setInventory(getInitialInventory())
         }
 
-        // Calculate offline earnings BEFORE restoring grid stats
+        // Calculate offline earnings
         if (data.wallet?.last_updated) {
-          // Get the hashrate from the grid BEFORE calculating stats
           let storedHashrate = 0
-          for (let y = 0; y < 5; y++) {
-            for (let x = 0; x < 5; x++) {
+          for (let y = 0; y < savedGridSize; y++) {
+            for (let x = 0; x < savedGridSize; x++) {
               const item = newGrid[y]?.[x]?.item
               if (item?.type === 'gpu') {
                 storedHashrate += item.hashrate
@@ -113,18 +114,14 @@ function App() {
           const lastTime = new Date(data.wallet.last_updated).getTime()
           const secondsOffline = Math.min((now - lastTime) / 1000, 86400)
           
-          const isOverloaded = false // Can't know without stored energy limit
-          const isThrottling = false
-          
           const { sSol: offlineSol, sXrp: offlineXrp } = calculateOfflineEarnings(
             data.wallet.last_updated,
             storedHashrate,
-            isOverloaded,
-            isThrottling
+            false,
+            false
           )
           
           if ((offlineSol > 0 || offlineXrp > 0) && secondsOffline > 60) {
-            // Show offline earnings modal instead of toast
             setOfflineEarnings({ sSol: offlineSol, sXrp: offlineXrp, secondsOffline })
           }
         }
@@ -133,9 +130,7 @@ function App() {
         setInventory(getInitialInventory())
       }
       
-      // Recalculate stats after hydration
       useGameStore.getState().calculateStats()
-      
       setIsHydrated(true)
       setIsLoading(false)
     }
@@ -193,6 +188,39 @@ function App() {
     }
   }
 
+  // Handle grid expansion
+  const handleExpand = async () => {
+    const cost = (gridSize + 1) * 10000
+    
+    if (credits < cost) {
+      toast.error('Fondos insuficientes para expandir')
+      return
+    }
+
+    const success = expandGrid()
+    
+    if (success && user) {
+      try {
+        await supabase
+          .from('player_wallets')
+          .upsert({ 
+            user_id: user.id, 
+            credits: credits - cost,
+            grid_size: gridSize + 1
+          }, { onConflict: 'user_id' })
+
+        toast.success(`¡Granja expandida a ${gridSize + 1}x${gridSize + 1}!`, {
+          description: ` gastaste ${cost.toLocaleString()} USDT`,
+          style: { background: '#1e293b', border: '1px solid rgba(34, 211, 238, 0.5)', color: '#22d3ee' }
+        })
+        
+        syncNow()
+      } catch (error) {
+        console.error('Expand save failed:', error)
+      }
+    }
+  }
+
   // DnD sensors
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -220,10 +248,12 @@ function App() {
     }
   }
 
-  // Handle close offline modal
   const handleCloseOfflineModal = () => {
     setOfflineEarnings(null)
   }
+
+  const expandCost = (gridSize + 1) * 10000
+  const canExpand = credits >= expandCost && gridSize < 10
 
   if (!user) {
     return (
@@ -296,9 +326,12 @@ function App() {
               className="flex-1 flex flex-col items-center justify-center gap-4"
             >
               <GridBoard
-                gridSize={5}
+                gridSize={gridSize}
                 gridState={grid.map(row => row.map(cell => cell.item))}
                 isOverheating={isThrottling}
+                expandCost={expandCost}
+                canExpand={canExpand}
+                onExpandClick={handleExpand}
               />
             </motion.main>
           </div>
