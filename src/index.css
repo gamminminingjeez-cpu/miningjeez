@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: ui-monospace, Consolas, monospace;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background-color: #0a0a0f;
+  color: #e5e5e5;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Cyberpunk Glassmorphism utilities */
+@layer components {
+  .glass-panel {
+    @apply bg-cyber-panel backdrop-blur-md border border-cyber-border rounded-lg;
+  }
+
+  .text-glow-cyan {
+    text-shadow: 0 0 10px rgba(0, 255, 255, 0.5), 0 0 20px rgba(0, 255, 255, 0.3);
+  }
+
+  .text-glow-purple {
+    text-shadow: 0 0 10px rgba(168, 85, 247, 0.5), 0 0 20px rgba(168, 85, 247, 0.3);
+  }
+
+  .btn-cyber {
+    @apply px-4 py-2 bg-cyber-panel border border-cyber-cyan text-cyber-cyan rounded
+           hover:bg-cyber-cyan hover:text-cyber-bg transition-all duration-200
+           shadow-glow-cyan hover:shadow-glow-cyan;
+  }
+}
