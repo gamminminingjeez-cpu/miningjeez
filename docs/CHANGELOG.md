@@ -4,43 +4,37 @@
 
 ## 2026-04-06
 
-### Fase 4: Drag & Drop Implementado
+### Fase 6: Tienda y Economía
 
 **Acciones realizadas:**
 
-1. **Dependencias:**
-   - `@dnd-kit/core` y `@dnd-kit/utilities` instalados
+1. **Sonner instalado** - Sistema de notificaciones toast premium
 
-2. **Mock Data (`src/lib/mockData.tsx`):**
-   - Catálogo de items: GPU RTX 3060, GPU RTX 4090, Cooler Fan, Refrigeración Líquida, PSU 500W, PSU 1000W
-   - Función `getInitialInventory()` para items iniciales del jugador
+2. **Componentes de Tienda:**
+   - `src/lib/catalog.tsx` - Catálogo de items comprables con precios
+   - `src/components/layout/StoreTab.tsx` - UI de tienda con tarjetas de compra
+   - `InventoryPanel.tsx` refactorizado con tabs (Inventario / Tienda)
+   - Animación de tab activa con `layoutId` de framer-motion
 
-3. **Store de Juego (`src/store/useGameStore.ts`):**
-   - Estado del grid (5x5)
-   - Inventario del jugador
-   - Stats calculados: Hashrate, Consumo, Cooling, Límite Energía, Temperatura
-   - Actions: `setInventory`, `placeItem`, `removeItem`, `calculateStats`
+3. **Lógica de Compra:**
+   - Verificación de fondos antes de compra
+   - Deducción de créditos en Zustand
+   - Guardado en Supabase (wallet + inventory)
+   - Toasts de éxito/error
 
-4. **Componentes UI:**
-   - `InventoryPanel.tsx` - Panel inferior con items arrastrables
-   - `GridBoard.tsx` - Grid 5x5 con celdas droppable
-   - Uso de `useDraggable` y `useDroppable` de dnd-kit
+4. **Header actualizado:**
+   - Indicador de sincronización con iconos animados
+   - Estados: idle, syncing, synced, error
 
-5. **App.tsx actualizado:**
-   - DndContext con sensores (PointerSensor)
-   - Handler `onDragEnd` para colocar items del inventario al grid
-   - Stats pasan al Sidebar en tiempo real
+5. **Toaster configurado** con tema oscuro cyberpunk
 
-**Tipos unificados (`src/types/game.ts`):**
-- `GridItem` interface
-- `GridCell` interface
+**Funcionalidades:**
+- Pestañas MI INVENTARIO / TIENDA
+- Comprar items con Créditos USDT
+- Notificaciones toast de éxito/error
+- Items no comprables se ven deshabilitados
 
-**Funcionalidad:**
-- Arrastrar items del inventario al grid
-- Stats se actualizan al colocar items
-- Visual feedback con hover y glow effects
-
-**Build:** ✓ OK (553KB - optimizaciones de chunking pendientes)
+**Build:** ✓ OK (597KB)
 
 **Repo:** https://github.com/gamminminingjeez-cpu/miningjeez
 
@@ -48,14 +42,20 @@
 
 ## Registros Anteriores
 
-### Fase 3: Layout y Core UI
-- Header, Sidebar, GridBoard con glassmorphism
-- Framer Motion para animaciones
-- Tema cyberpunk configurado
-- Build OK
+### Fase 5: Game Loop y Sinergias
+- Motor de cálculo de stats (hashrate, energía, temp)
+- Algoritmo de adyacencia (cooler → GPU = -15°C)
+- useGameLoop hook con tick de 1 segundo
+- Sidebar con números animados (odómetro)
+- Grid con alertas de sobrecalentamiento
+
+### Fase 4: Drag & Drop
+- dnd-kit instalado
+- Inventario draggable
+- Grid droppable
+
+### Fase 3: Layout UI
+- Glassmorphism, framer-motion, tema cyberpunk
 
 ### Fase 1: Setup y Auth
-- Proyecto inicializado
-- Supabase + Zustand
-- Auth UI
-- Build OK
+- Proyecto inicializado, Supabase, Zustand

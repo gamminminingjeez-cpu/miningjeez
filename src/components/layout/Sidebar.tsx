@@ -1,18 +1,45 @@
-import { motion } from 'framer-motion'
-import { Cpu, Zap, Thermometer, Activity } from 'lucide-react'
+import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion'
+import { Cpu, Zap, Thermometer, Activity, AlertTriangle } from 'lucide-react'
+
+interface AnimatedNumberProps {
+  value: number
+  decimals?: number
+  suffix?: string
+}
+
+function AnimatedNumber({ value, decimals = 2, suffix = '' }: AnimatedNumberProps) {
+  const motionValue = useMotionValue(value)
+  const springValue = useSpring(motionValue, { stiffness: 100, damping: 30 })
+  const displayValue = useTransform(springValue, (v) => 
+    v.toFixed(decimals) + suffix
+  )
+
+  return <motion.span>{displayValue}</motion.span>
+}
 
 interface StatItemProps {
   label: string
-  value: string | number
+  value: number
   max?: number
   icon: React.ReactNode
   color: 'cyan' | 'purple' | 'green' | 'red' | 'yellow'
   suffix?: string
+  decimals?: number
   isOverload?: boolean
   isThrottling?: boolean
 }
 
-function StatItem({ label, value, max, icon, color, suffix = '', isOverload = false, isThrottling = false }: StatItemProps) {
+function StatItem({ 
+  label, 
+  value, 
+  max, 
+  icon, 
+  color, 
+  suffix = '', 
+  decimals = 2,
+  isOverload = false, 
+  isThrottling = false 
+}: StatItemProps) {
   const colorClasses = {
     cyan: 'text-cyan-400 border-cyan-500/30',
     purple: 'text-purple-400 border-purple-500/30',
@@ -29,34 +56,43 @@ function StatItem({ label, value, max, icon, color, suffix = '', isOverload = fa
     yellow: 'bg-yellow-400',
   }
 
-  const percentage = max ? Math.min((Number(value) / max) * 100, 100) : 0
-  const displayValue = typeof value === 'number' ? value.toFixed(2) : value
+  const percentage = max ? Math.min((value / max) * 100, 100) : 0
 
   return (
-    <div className={`p-4 rounded-lg bg-cyber-bg/50 border ${colorClasses[color]} ${isOverload ? 'animate-pulse' : ''}`}>
+    <motion.div 
+      layout
+      className={`p-4 rounded-lg bg-cyber-bg/50 border ${colorClasses[color]} ${isOverload || isThrottling ? 'animate-pulse' : ''}`}
+    >
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <div className={`${color === 'cyan' ? 'text-cyan-400' : color === 'purple' ? 'text-purple-400' : color === 'green' ? 'text-green-400' : color === 'red' ? 'text-red-400' : 'text-yellow-400'}`}>
+          <div className={colorClasses[color].split(' ')[0]}>
             {icon}
           </div>
           <span className="text-xs text-slate-400 font-mono uppercase tracking-wider">{label}</span>
         </div>
         {isThrottling && (
-          <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/30 text-red-400 font-mono animate-pulse">
-            THROTTLING
-          </span>
+          <motion.span 
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="text-[10px] px-2 py-0.5 rounded bg-red-500/30 text-red-400 font-mono flex items-center gap-1"
+          >
+            <AlertTriangle className="w-3 h-3" /> THROTTLING
+          </motion.span>
         )}
         {isOverload && (
-          <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/30 text-red-400 font-mono animate-pulse">
-            OVERLOAD
-          </span>
+          <motion.span 
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="text-[10px] px-2 py-0.5 rounded bg-red-500/30 text-red-400 font-mono flex items-center gap-1"
+          >
+            <AlertTriangle className="w-3 h-3" /> OVERLOAD
+          </motion.span>
         )}
       </div>
       <div className="flex items-end gap-2">
         <span className={`text-2xl font-bold font-mono ${colorClasses[color].split(' ')[0]}`}>
-          {displayValue}
+          <AnimatedNumber value={value} decimals={decimals} suffix={suffix} />
         </span>
-        <span className="text-sm text-slate-400 font-mono mb-1">{suffix}</span>
       </div>
       {max && (
         <div className="mt-2 h-2 bg-slate-800 rounded-full overflow-hidden">
@@ -64,11 +100,11 @@ function StatItem({ label, value, max, icon, color, suffix = '', isOverload = fa
             initial={{ width: 0 }}
             animate={{ width: `${percentage}%` }}
             transition={{ duration: 0.5, ease: 'easeOut' }}
-            className={`h-full ${barColorClasses[color]} ${isOverload ? 'animate-pulse' : ''}`}
+            className={`h-full ${barColorClasses[color]} ${isOverload || isThrottling ? 'animate-pulse' : ''}`}
           />
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -109,9 +145,10 @@ export function Sidebar({
         <StatItem
           label="Hashrate"
           value={hashrate}
-          suffix="TH/s"
+          suffix=" TH/s"
           icon={<Cpu className="w-4 h-4" />}
           color="cyan"
+          decimals={1}
         />
 
         <StatItem
@@ -122,6 +159,7 @@ export function Sidebar({
           icon={<Zap className="w-4 h-4" />}
           color={isOverloaded ? 'red' : energyUsed > energyLimit * 0.8 ? 'yellow' : 'green'}
           isOverload={isOverloaded}
+          decimals={0}
         />
 
         <StatItem
@@ -132,6 +170,7 @@ export function Sidebar({
           icon={<Thermometer className="w-4 h-4" />}
           color={isThrottling ? 'red' : temperature > 80 ? 'yellow' : 'green'}
           isThrottling={isThrottling}
+          decimals={1}
         />
       </div>
 
@@ -142,8 +181,9 @@ export function Sidebar({
           animate={{ opacity: 1, y: 0 }}
           className="glass-panel p-4 border-red-500/50 bg-red-500/10"
         >
-          <p className="text-red-400 font-mono text-xs text-center">
-            ⚠️ SISTEMA EN PELIGRO
+          <p className="text-red-400 font-mono text-xs text-center flex items-center justify-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            SISTEMA EN PELIGRO
           </p>
           <p className="text-red-300/70 font-mono text-[10px] text-center mt-1">
             {isOverloaded && 'Consumo excede límite de energía'}

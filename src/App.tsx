@@ -1,6 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { motion } from 'framer-motion'
+import { Toaster, toast } from 'sonner'
 import { Header } from './components/layout/Header'
 import { Sidebar } from './components/layout/Sidebar'
 import { GridBoard } from './components/layout/GridBoard'
@@ -9,26 +10,117 @@ import { useAuthStore } from './store/useAuthStore'
 import { useGameStore } from './store/useGameStore'
 import { supabase } from './lib/supabase'
 import { getInitialInventory } from './lib/mockData'
+import { useAutosave, loadPlayerData, calculateOfflineEarnings } from './hooks/useAutosave'
+import { mockCatalog } from './lib/mockData'
+import type { GridItem } from './types/game'
 
 function App() {
   const { user, setSession, clearSession } = useAuthStore()
-  const { inventory, grid, placeItem, totalHashrate, totalConsumption, energyLimit, avgTemperature, setInventory } = useGameStore()
+  const { 
+    inventory, grid, placeItem, totalHashrate, totalConsumption, energyLimit, avgTemperature, 
+    setInventory, credits, sSol, sXrp, setGrid, addCrypto, setCredits 
+  } = useGameStore()
+  const [isLoading, setIsLoading] = useState(true)
+  const [isHydrated, setIsHydrated] = useState(false)
 
-  // Initialize inventory with mock data on mount
+  // Autosave hook
+  const { syncStatus, lastSync, syncNow } = useAutosave(user?.id)
+
+  // Hydrate game state from Supabase on login
   useEffect(() => {
-    if (user && inventory.length === 0) {
-      const initialItems = getInitialInventory()
-      setInventory(initialItems)
+    if (!user) {
+      setIsHydrated(false)
+      return
     }
+
+    const hydrate = async () => {
+      setIsLoading(true)
+      
+      // Try to load existing data
+      const data = await loadPlayerData(user.id)
+      
+      if (data) {
+        // Restore wallet
+        useGameStore.setState({
+          credits: data.wallet?.credits ?? 1000,
+          sSol: data.wallet?.s_sol ?? 0,
+          sXrp: data.wallet?.s_xrp ?? 0
+        })
+
+        // Restore grid from grid_state
+        const newGrid = Array(5).fill(null).map((_, y) =>
+          Array(5).fill(null).map((_, x) => ({ x, y, item: null as GridItem | null }))
+        )
+        
+        if (data.grid && data.grid.length > 0) {
+          for (const cell of data.grid) {
+            const itemId = cell.item_id
+            const catalogItem = mockCatalog.find(i => i.id === itemId)
+            if (catalogItem && cell.pos_x >= 0 && cell.pos_x < 5 && cell.pos_y >= 0 && cell.pos_y < 5) {
+              newGrid[cell.pos_y][cell.pos_x] = {
+                x: cell.pos_x,
+                y: cell.pos_y,
+                item: { ...catalogItem, instanceId: cell.instance_id }
+              }
+            }
+          }
+        }
+        setGrid(newGrid)
+        
+        // Restore inventory
+        if (data.inventory && data.inventory.length > 0) {
+          const invItems = data.inventory
+            .map((inv: { item_id: string; instance_id: string }) => {
+              const catalogItem = mockCatalog.find(i => i.id === inv.item_id)
+              if (catalogItem) {
+                return { ...catalogItem, instanceId: inv.instance_id }
+              }
+              return null
+            })
+            .filter(Boolean)
+          setInventory(invItems)
+        } else {
+          // Give initial items if empty
+          setInventory(getInitialInventory())
+        }
+
+        // Calculate offline earnings
+        if (data.wallet?.last_updated) {
+          const { sSol: offlineSol, sXrp: offlineXrp } = calculateOfflineEarnings(
+            data.wallet.last_updated,
+            totalHashrate,
+            totalConsumption > energyLimit,
+            avgTemperature >= 90
+          )
+          if (offlineSol > 0 || offlineXrp > 0) {
+            addCrypto(offlineSol, offlineXrp)
+            toast.success('¡Bienvenido de vuelta!', {
+              description: `Generaste ${offlineSol.toFixed(4)} $sSOL mientras estabas fuera`,
+              style: { background: '#1e293b', border: '1px solid rgba(34, 211, 238, 0.3)', color: '#22d3ee' }
+            })
+          }
+        }
+      } else {
+        // New player - give initial inventory
+        setInventory(getInitialInventory())
+      }
+      
+      // Recalculate stats after hydration
+      useGameStore.getState().calculateStats()
+      
+      setIsHydrated(true)
+      setIsLoading(false)
+    }
+
+    hydrate()
   }, [user])
 
+  // Auth effect
   useEffect(() => {
-    // Check current session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
     })
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         setSession(session)
@@ -39,6 +131,44 @@ function App() {
 
     return () => subscription.unsubscribe()
   }, [setSession, clearSession])
+
+  // Handle purchase
+  const handlePurchase = async (item: GridItem) => {
+    if (credits < item.price) {
+      toast.error('Fondos insuficientes')
+      return
+    }
+
+    // Deduct credits
+    const newCredits = credits - item.price
+    setCredits(newCredits)
+
+    // Add to inventory
+    const newInventory = [...inventory, item]
+    setInventory(newInventory)
+
+    // Save to Supabase
+    if (user) {
+      try {
+        // Update wallet
+        await supabase
+          .from('player_wallets')
+          .upsert({ user_id: user.id, credits: newCredits }, { onConflict: 'user_id' })
+
+        // Add to inventory
+        await supabase
+          .from('inventory')
+          .insert({ user_id: user.id, item_id: item.id, instance_id: item.instanceId, status: 'en_inventario' })
+
+        toast.success('¡Compra exitosa!', {
+          description: `${item.name} agregado a tu inventario`,
+          style: { background: '#1e293b', border: '1px solid rgba(34, 197, 94, 0.5)', color: '#4ade80' }
+        })
+      } catch (error) {
+        console.error('Purchase save failed:', error)
+      }
+    }
+  }
 
   // DnD sensors
   const sensors = useSensors(
@@ -61,6 +191,8 @@ function App() {
         const y = parseInt(parts[1], 10)
         if (!isNaN(x) && !isNaN(y)) {
           placeItem(active.id.toString(), x, y)
+          // Immediate sync on item placement
+          syncNow()
         }
       }
     }
@@ -78,7 +210,18 @@ function App() {
     )
   }
 
-  // Calculate derived stats
+  if (isLoading || !isHydrated) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-cyan-400 font-mono text-xl animate-pulse">
+            SINCRONIZANDO CON SERVIDOR...
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   const isOverloaded = totalConsumption > energyLimit
   const isThrottling = avgTemperature >= 90
 
@@ -98,9 +241,11 @@ function App() {
         <div className="relative z-10 flex flex-col h-screen p-4 gap-4">
           {/* Header */}
           <Header
-            credits={1000}
-            sSol={0}
-            sXrp={0}
+            credits={credits}
+            sSol={sSol}
+            sXrp={sXrp}
+            syncStatus={syncStatus}
+            lastSync={lastSync}
           />
 
           {/* Main content */}
@@ -125,12 +270,17 @@ function App() {
               <GridBoard
                 gridSize={5}
                 gridState={grid.map(row => row.map(cell => cell.item))}
+                isOverheating={isThrottling}
               />
             </motion.main>
           </div>
 
-          {/* Inventory Panel at bottom */}
-          <InventoryPanel items={inventory} />
+          {/* Inventory Panel at bottom with tabs */}
+          <InventoryPanel 
+            items={inventory} 
+            credits={credits}
+            onPurchase={handlePurchase}
+          />
 
           {/* Footer */}
           <motion.footer
@@ -150,6 +300,19 @@ function App() {
           </motion.footer>
         </div>
       </div>
+
+      {/* Toaster for notifications */}
+      <Toaster 
+        theme="dark" 
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: '#1e293b',
+            border: '1px solid rgba(34, 211, 238, 0.3)',
+            color: '#e5e5e5'
+          }
+        }}
+      />
     </DndContext>
   )
 }

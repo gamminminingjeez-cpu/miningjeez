@@ -1,7 +1,10 @@
-import { useDraggable } from '@dnd-kit/core'
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { clsx } from 'clsx'
+import { Package, ShoppingBag } from 'lucide-react'
+import { useDraggable } from '@dnd-kit/core'
 import type { GridItem } from '../../types/game'
+import { StoreTab } from './StoreTab'
 
 function DraggableItem(item: GridItem) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -80,9 +83,15 @@ function DraggableItem(item: GridItem) {
 
 interface InventoryPanelProps {
   items: GridItem[]
+  credits: number
+  onPurchase: (item: GridItem) => void
 }
 
-export function InventoryPanel({ items }: InventoryPanelProps) {
+type Tab = 'inventory' | 'store'
+
+export function InventoryPanel({ items, credits, onPurchase }: InventoryPanelProps) {
+  const [activeTab, setActiveTab] = useState<Tab>('inventory')
+
   return (
     <motion.div
       initial={{ y: 50, opacity: 0 }}
@@ -90,25 +99,64 @@ export function InventoryPanel({ items }: InventoryPanelProps) {
       transition={{ duration: 0.5, delay: 0.3 }}
       className="glass-panel p-4"
     >
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-bold text-white flex items-center gap-2">
-          <span className="w-3 h-3 rounded-full bg-purple-500" />
-          INVENTARIO
-        </h2>
-        <span className="text-xs text-slate-400 font-mono">{items.length} items</span>
+      {/* Tabs */}
+      <div className="flex items-center gap-2 mb-4">
+        <div className="flex-1 relative bg-slate-900/50 rounded-lg p-1 flex">
+          {/* Active tab indicator */}
+          <motion.div
+            layoutId="activeTab"
+            className="absolute inset-y-1 rounded-md"
+            style={{
+              width: 'calc(50% - 4px)',
+              left: activeTab === 'inventory' ? '4px' : undefined,
+              right: activeTab === 'store' ? '4px' : undefined,
+              background: 'rgba(34, 211, 238, 0.1)',
+              border: '1px solid rgba(34, 211, 238, 0.3)'
+            }}
+            transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+          />
+
+          <button
+            onClick={() => setActiveTab('inventory')}
+            className={clsx(
+              'flex-1 relative z-10 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-mono transition-colors',
+              activeTab === 'inventory' ? 'text-cyan-400' : 'text-slate-400 hover:text-white'
+            )}
+          >
+            <Package className="w-4 h-4" />
+            MI INVENTARIO
+            <span className="ml-1 text-xs opacity-60">({items.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('store')}
+            className={clsx(
+              'flex-1 relative z-10 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-mono transition-colors',
+              activeTab === 'store' ? 'text-cyan-400' : 'text-slate-400 hover:text-white'
+            )}
+          >
+            <ShoppingBag className="w-4 h-4" />
+            TIENDA
+          </button>
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 justify-center">
-        {items.map((item) => (
-          <DraggableItem key={item.instanceId} {...item} />
-        ))}
+      {/* Tab Content */}
+      {activeTab === 'inventory' ? (
+        <div className="flex flex-wrap gap-3 justify-center max-h-48 overflow-y-auto">
+          {items.map((item) => (
+            <DraggableItem key={item.instanceId} {...item} />
+          ))}
 
-        {items.length === 0 && (
-          <div className="text-center py-8 text-slate-500 font-mono text-sm">
-            Inventario vacío - Compra items en la tienda
-          </div>
-        )}
-      </div>
+          {items.length === 0 && (
+            <div className="text-center py-8 text-slate-500 font-mono text-sm w-full">
+              Inventario vacío - Compra items en la tienda
+            </div>
+          )}
+        </div>
+      ) : (
+        <StoreTab credits={credits} onPurchase={onPurchase} />
+      )}
     </motion.div>
   )
 }

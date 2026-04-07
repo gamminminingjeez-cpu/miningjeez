@@ -1,16 +1,17 @@
 import { useDroppable } from '@dnd-kit/core'
 import { motion } from 'framer-motion'
 import { clsx } from 'clsx'
-import { Cpu, Snowflake, Zap } from 'lucide-react'
+import { Cpu, Snowflake, Zap, AlertTriangle } from 'lucide-react'
 import type { GridItem } from '../../types/game'
 
 interface CellProps {
   x: number
   y: number
   item: GridItem | null
+  isOverheating?: boolean
 }
 
-function Cell({ x, y, item }: CellProps) {
+function Cell({ x, y, item, isOverheating = false }: CellProps) {
   const { isOver, setNodeRef } = useDroppable({
     id: `${x}-${y}`,
     data: { x, y },
@@ -37,23 +38,56 @@ function Cell({ x, y, item }: CellProps) {
         'w-full aspect-square rounded-lg border transition-all duration-200',
         'flex items-center justify-center relative',
         !item && 'bg-slate-900/80 border-slate-700/50 cursor-pointer',
-        item && 'bg-gradient-to-br from-slate-800 to-slate-900 border-cyan-500/50',
+        item && !isOverheating && 'bg-gradient-to-br from-slate-800 to-slate-900 border-cyan-500/50',
+        item && isOverheating && 'bg-gradient-to-br from-slate-900 to-red-950/50 border-red-500/70',
         isOver && !item && 'border-cyan-400 shadow-glow-cyan bg-slate-800/90 scale-105'
       )}
+      animate={
+        isOverheating && item?.type === 'gpu'
+          ? {
+              boxShadow: [
+                '0 0 15px rgba(239, 68, 68, 0.4)',
+                '0 0 25px rgba(239, 68, 68, 0.8)',
+                '0 0 15px rgba(239, 68, 68, 0.4)',
+              ],
+            }
+          : {}
+      }
+      transition={
+        isOverheating
+          ? { duration: 1, repeat: Infinity, ease: 'easeInOut' }
+          : { duration: 0.2 }
+      }
     >
       {item ? (
         <div className="text-center">
           <div className={clsx(
-            'w-10 h-10 rounded-lg flex items-center justify-center mx-auto mb-1',
-            item.type === 'gpu' && 'bg-gradient-to-br from-purple-600 to-pink-600',
+            'w-10 h-10 rounded-lg flex items-center justify-center mx-auto mb-1 relative',
+            item.type === 'gpu' && !isOverheating && 'bg-gradient-to-br from-purple-600 to-pink-600',
+            item.type === 'gpu' && isOverheating && 'bg-gradient-to-br from-red-600 to-orange-600',
             item.type === 'cooler' && 'bg-gradient-to-br from-cyan-600 to-blue-600',
             item.type === 'psu' && 'bg-gradient-to-br from-yellow-600 to-orange-600'
           )}>
             <div className="text-white">{renderIcon(item.type)}</div>
+            {isOverheating && item.type === 'gpu' && (
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center"
+              >
+                <AlertTriangle className="w-3 h-3 text-white" />
+              </motion.div>
+            )}
           </div>
-          <p className="text-[9px] font-mono text-cyan-400 truncate w-full px-1">
+          <p className={clsx(
+            'text-[9px] font-mono truncate w-full px-1',
+            isOverheating ? 'text-red-400' : 'text-cyan-400'
+          )}>
             {item.name}
           </p>
+          {isOverheating && item.type === 'gpu' && (
+            <p className="text-[8px] font-mono text-red-500 mt-0.5">HOT!</p>
+          )}
         </div>
       ) : (
         <span className={clsx(
@@ -81,10 +115,10 @@ function Cell({ x, y, item }: CellProps) {
 interface GridBoardProps {
   gridSize?: number
   gridState?: (GridItem | null)[][]
+  isOverheating?: boolean
 }
 
-export function GridBoard({ gridSize = 5, gridState }: GridBoardProps) {
-  // Initialize empty grid if not provided
+export function GridBoard({ gridSize = 5, gridState, isOverheating = false }: GridBoardProps) {
   const displayGrid = gridState || Array(gridSize).fill(null).map(() => Array(gridSize).fill(null))
 
   return (
@@ -97,7 +131,10 @@ export function GridBoard({ gridSize = 5, gridState }: GridBoardProps) {
       {/* Title */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          <span className="w-3 h-3 rounded-full bg-cyan-400 animate-pulse" />
+          <span className={clsx(
+            'w-3 h-3 rounded-full',
+            isOverheating ? 'bg-red-500 animate-pulse' : 'bg-cyan-400 animate-pulse'
+          )} />
           THE GRID
         </h2>
         <span className="text-xs text-slate-400 font-mono">{gridSize}x{gridSize} SLOTS</span>
@@ -115,6 +152,7 @@ export function GridBoard({ gridSize = 5, gridState }: GridBoardProps) {
               x={x}
               y={y}
               item={cell || null}
+              isOverheating={isOverheating}
             />
           ))
         )}
