@@ -6,14 +6,13 @@ const SAVE_INTERVAL = 30000 // 30 seconds
 const OFFLINE_RATE_MULTIPLIER = 0.5 // Only 50% of earnings while offline
 
 export function useAutosave(userId: string | undefined) {
-  const { credits, sSol, sXrp, grid } = useGameStore()
+  const { sSol, sXrp } = useGameStore()
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle')
   const [lastSync, setLastSync] = useState<Date | null>(null)
   
   const accumulatedSolRef = useRef(0)
   const accumulatedXrpRef = useRef(0)
   const lastSaveRef = useRef(Date.now())
-  const tickRef = useRef<number | null>(null)
   const isInitializedRef = useRef(false)
 
   // Accumulate crypto in memory (not saving to DB yet)

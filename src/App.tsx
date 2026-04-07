@@ -6,6 +6,7 @@ import { Header } from './components/layout/Header'
 import { Sidebar } from './components/layout/Sidebar'
 import { GridBoard } from './components/layout/GridBoard'
 import { InventoryPanel } from './components/layout/InventoryPanel'
+import { ExchangePanel } from './components/layout/ExchangePanel'
 import { useAuthStore } from './store/useAuthStore'
 import { useGameStore } from './store/useGameStore'
 import { supabase } from './lib/supabase'
@@ -22,6 +23,7 @@ function App() {
   } = useGameStore()
   const [isLoading, setIsLoading] = useState(true)
   const [isHydrated, setIsHydrated] = useState(false)
+  const [isExchangeOpen, setIsExchangeOpen] = useState(false)
 
   // Autosave hook
   const { syncStatus, lastSync, syncNow } = useAutosave(user?.id)
@@ -77,7 +79,7 @@ function App() {
               }
               return null
             })
-            .filter(Boolean)
+            .filter(Boolean) as GridItem[]
           setInventory(invItems)
         } else {
           // Give initial items if empty
@@ -246,6 +248,7 @@ function App() {
             sXrp={sXrp}
             syncStatus={syncStatus}
             lastSync={lastSync}
+            onExchangeClick={() => setIsExchangeOpen(true)}
           />
 
           {/* Main content */}
@@ -300,6 +303,13 @@ function App() {
           </motion.footer>
         </div>
       </div>
+
+      {/* Exchange Modal */}
+      <ExchangePanel 
+        isOpen={isExchangeOpen}
+        onClose={() => setIsExchangeOpen(false)}
+        userId={user.id}
+      />
 
       {/* Toaster for notifications */}
       <Toaster 

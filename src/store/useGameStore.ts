@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import type { GridItem, GridCell } from '../types/game'
 
+interface PricePoint {
+  time: number
+  priceSOL: number
+  priceXRP: number
+}
+
 interface GameState {
   // Grid state (5x5)
   grid: GridCell[][]
@@ -12,6 +18,11 @@ interface GameState {
   credits: number
   sSol: number
   sXrp: number
+  
+  // Market prices
+  priceSOL: number
+  priceXRP: number
+  priceHistory: PricePoint[]
   
   // Computed stats
   totalHashrate: number
@@ -27,16 +38,19 @@ interface GameState {
   // Actions
   setInventory: (items: GridItem[]) => void
   setCredits: (credits: number) => void
+  setGrid: (grid: GridCell[][]) => void
   placeItem: (instanceId: string, x: number, y: number) => void
   removeItem: (x: number, y: number) => void
   calculateStats: () => void
   addCrypto: (sSol: number, sXrp: number) => void
   sellCrypto: (amount: number, currency: 'sSol' | 'sXrp') => boolean
+  updateMarketPrices: (sol: number, xrp: number) => void
   resetGame: () => void
 }
 
 const GRID_SIZE = 5
-const SYNERGY_COOLING_PER_ADJACENT_COOLER = 15 // °C reduction per adjacent cooler
+const SYNERGY_COOLING_PER_ADJACENT_COOLER = 15
+const MAX_PRICE_HISTORY = 20
 
 const createEmptyGrid = (): GridCell[][] =>
   Array(GRID_SIZE).fill(null).map((_, y) =>
@@ -58,6 +72,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   credits: 1000,
   sSol: 0,
   sXrp: 0,
+  
+  // Market starting prices
+  priceSOL: 0.50,
+  priceXRP: 2.00,
+  priceHistory: [{ time: Date.now(), priceSOL: 0.50, priceXRP: 2.00 }],
+  
   totalHashrate: 0,
   totalConsumption: 0,
   totalCooling: 0,
@@ -69,6 +89,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   setInventory: (items) => set({ inventory: items }),
 
   setCredits: (credits) => set({ credits }),
+
+  setGrid: (grid) => set({ grid }),
 
   placeItem: (instanceId, x, y) => {
     const { inventory, grid } = get()
@@ -109,9 +131,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     let energyLimit = 0
     let gpuCount = 0
     let gpuTotalTemp = 0
-    const gpuTemps: number[] = []
     
-    // First pass: collect PSU capacity and base stats
     for (let y = 0; y < GRID_SIZE; y++) {
       for (let x = 0; x < GRID_SIZE; x++) {
         const item = grid[y][x].item
@@ -128,13 +148,11 @@ export const useGameStore = create<GameState>((set, get) => ({
             totalHashrate += item.hashrate
             gpuTotalTemp += item.tempBase
             gpuCount++
-            gpuTemps.push(item.tempBase)
           }
         }
       }
     }
     
-    // Second pass: calculate adjacency synergies for each GPU
     let adjacencyBonus = 0
     for (let y = 0; y < GRID_SIZE; y++) {
       for (let x = 0; x < GRID_SIZE; x++) {
@@ -151,35 +169,27 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
         }
         
-        // Each adjacent cooler gives synergy bonus
         adjacencyBonus += coolerCount * SYNERGY_COOLING_PER_ADJACENT_COOLER
       }
     }
     
-    // Calculate final temperature with synergy bonus
     let avgTemp = 25
     if (gpuCount > 0) {
       avgTemp = (gpuTotalTemp / gpuCount) - totalCooling - (adjacencyBonus / gpuCount)
     }
     
-    // Clamp temperature
     avgTemp = Math.max(25, Math.min(100, avgTemp))
     
-    // Default energy limit
     if (energyLimit === 0) energyLimit = 500
     
-    // Check overload (consumption > limit)
     const isOverloaded = totalConsumption > energyLimit
-    
-    // Check thermal throttling (temp >= 90)
     const isThrottling = avgTemp >= 90
     
-    // Apply multipliers
     let effectiveHashrate = totalHashrate
     if (isOverloaded) {
-      effectiveHashrate = 0 // blackout!
+      effectiveHashrate = 0
     } else if (isThrottling) {
-      effectiveHashrate = totalHashrate * 0.5 // 50% efficiency
+      effectiveHashrate = totalHashrate * 0.5
     }
     
     set({
@@ -202,21 +212,26 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   sellCrypto: (amount, currency) => {
-    const { sSol, sXrp, credits } = get()
+    const { sSol, sXrp, credits, priceSOL, priceXRP } = get()
     
     if (currency === 'sSol' && sSol >= amount) {
-      // Price: 1 sSol = 0.50 USDT
-      const earnings = amount * 0.50
+      const earnings = amount * priceSOL
       set({ sSol: sSol - amount, credits: credits + earnings })
       return true
     }
     if (currency === 'sXrp' && sXrp >= amount) {
-      // Price: 1 sXrp = 2.00 USDT
-      const earnings = amount * 2.00
+      const earnings = amount * priceXRP
       set({ sXrp: sXrp - amount, credits: credits + earnings })
       return true
     }
     return false
+  },
+
+  updateMarketPrices: (sol, xrp) => {
+    const { priceHistory } = get()
+    const newPoint = { time: Date.now(), priceSOL: sol, priceXRP: xrp }
+    const newHistory = [...priceHistory, newPoint].slice(-MAX_PRICE_HISTORY)
+    set({ priceSOL: sol, priceXRP: xrp, priceHistory: newHistory })
   },
 
   resetGame: () => {
@@ -226,6 +241,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       credits: 1000,
       sSol: 0,
       sXrp: 0,
+      priceSOL: 0.50,
+      priceXRP: 2.00,
+      priceHistory: [{ time: Date.now(), priceSOL: 0.50, priceXRP: 2.00 }],
       totalHashrate: 0,
       totalConsumption: 0,
       totalCooling: 0,

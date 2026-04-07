@@ -1,5 +1,5 @@
 import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion'
-import { Coins, Zap, Cloud, CloudOff, RefreshCw, Check } from 'lucide-react'
+import { Coins, Zap, Cloud, CloudOff, RefreshCw, Check, BarChart3 } from 'lucide-react'
 import { clsx } from 'clsx'
 
 interface AnimatedNumberProps {
@@ -24,6 +24,7 @@ interface HeaderProps {
   sXrp?: number
   syncStatus?: 'idle' | 'syncing' | 'synced' | 'error'
   lastSync?: Date | null
+  onExchangeClick?: () => void
 }
 
 function SyncIndicator({ status }: { status: 'idle' | 'syncing' | 'synced' | 'error' }) {
@@ -58,7 +59,13 @@ function SyncIndicator({ status }: { status: 'idle' | 'syncing' | 'synced' | 'er
   )
 }
 
-export function Header({ credits = 1000, sSol = 0, sXrp = 0, syncStatus = 'idle' }: HeaderProps) {
+export function Header({ 
+  credits = 1000, 
+  sSol = 0, 
+  sXrp = 0, 
+  syncStatus = 'idle',
+  onExchangeClick 
+}: HeaderProps) {
   return (
     <motion.header
       initial={{ y: -20, opacity: 0 }}
@@ -77,8 +84,21 @@ export function Header({ credits = 1000, sSol = 0, sXrp = 0, syncStatus = 'idle'
         </div>
       </div>
 
-      {/* Sync Indicator */}
-      <SyncIndicator status={syncStatus} />
+      {/* Sync Indicator + Exchange Button */}
+      <div className="flex items-center gap-3">
+        <SyncIndicator status={syncStatus} />
+        
+        {/* Exchange Button */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={onExchangeClick}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600/30 to-cyan-600/30 border border-purple-500/50 hover:border-purple-400 transition-colors"
+        >
+          <BarChart3 className="w-4 h-4 text-purple-400" />
+          <span className="text-sm font-mono text-purple-400">MERCADO</span>
+        </motion.button>
+      </div>
 
       {/* Wallet Stats */}
       <div className="flex items-center gap-6">
