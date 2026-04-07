@@ -14,7 +14,11 @@ import { supabase } from './lib/supabase'
 import { getInitialInventory } from './lib/mockData'
 import { useAutosave, loadPlayerData, calculateOfflineEarnings } from './hooks/useAutosave'
 import { mockCatalog } from './lib/mockData'
+import { setToastFunction } from './hooks/useGameLoop'
 import type { GridItem } from './types/game'
+
+// Set up toast function for game loop
+setToastFunction((message, options) => toast(message, options))
 
 function App() {
   const { user, setSession, clearSession } = useAuthStore()

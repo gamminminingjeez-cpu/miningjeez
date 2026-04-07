@@ -8,11 +8,12 @@ import {
   Area,
   AreaChart
 } from 'recharts'
-import { TrendingUp, TrendingDown, X, DollarSign, ArrowDownRight } from 'lucide-react'
+import { TrendingUp, TrendingDown, X, DollarSign, ArrowDownRight, Bot } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
 import { useGameStore } from '../../store/useGameStore'
 import { supabase } from '../../lib/supabase'
+import { TradingBotPanel } from './TradingBotPanel'
 
 interface ExchangePanelProps {
   isOpen: boolean
@@ -24,7 +25,8 @@ export function ExchangePanel({ isOpen, onClose, userId }: ExchangePanelProps) {
   const { 
     sSol, sXrp, credits, 
     priceSOL, priceXRP, priceHistory,
-    sellCrypto 
+    sellCrypto,
+    setBotActive, setBotTargetPrice
   } = useGameStore()
   
   const [prevPrices, setPrevPrices] = useState({ sol: priceSOL, xrp: priceXRP })
@@ -52,7 +54,6 @@ export function ExchangePanel({ isOpen, onClose, userId }: ExchangePanelProps) {
     const success = sellCrypto(amount, currency)
     
     if (success) {
-      // Save to Supabase
       try {
         await supabase
           .from('player_wallets')
@@ -103,7 +104,7 @@ export function ExchangePanel({ isOpen, onClose, userId }: ExchangePanelProps) {
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="fixed inset-4 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[600px] md:max-h-[80vh] bg-slate-900/95 backdrop-blur-xl border border-cyan-500/30 rounded-2xl z-50 overflow-hidden flex flex-col"
+            className="fixed inset-4 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[700px] md:max-h-[85vh] bg-slate-900/95 backdrop-blur-xl border border-cyan-500/30 rounded-2xl z-50 overflow-hidden flex flex-col"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/50">
@@ -240,6 +241,30 @@ export function ExchangePanel({ isOpen, onClose, userId }: ExchangePanelProps) {
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
+                </div>
+              </div>
+
+              {/* Trading Bots Section */}
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <Bot className="w-5 h-5 text-cyan-400" />
+                  <h3 className="text-sm font-bold text-white font-mono">TRADING BOTS</h3>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <TradingBotPanel
+                    currency="sSOL"
+                    currentPrice={priceSOL}
+                    balance={sSol}
+                    onActivate={(active) => setBotActive('sSOL', active)}
+                    onTargetPriceChange={(price) => setBotTargetPrice('sSOL', price)}
+                  />
+                  <TradingBotPanel
+                    currency="sXRP"
+                    currentPrice={priceXRP}
+                    balance={sXrp}
+                    onActivate={(active) => setBotActive('sXRP', active)}
+                    onTargetPriceChange={(price) => setBotTargetPrice('sXRP', price)}
+                  />
                 </div>
               </div>
 

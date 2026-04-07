@@ -4,35 +4,38 @@
 
 ## 2026-04-06
 
-### Fase 7: Offline Earnings y Bienvenida Implementados
+### Trading Bots Implementados (Late Game Automation)
 
 **Acciones realizadas:**
 
-1. **OfflineEarningsModal.tsx creado:**
-   - Modal premium glassmorphism con animación de entrada
-   - Contador animado para mostrar ganancias
-   - Muestra tiempo offline, $sSOL y $sXRP ganados
-   - Botón "RECLAMAR GANANCIAS"
-   - Valor total estimado en USDT
+1. **TradingBotPanel.tsx creado:**
+   - Toggle ciberpunk (rojo OFF / verde ON)
+   - Input para precio objetivo
+   - Indicador "MONITOREANDO MERCADO" animado
+   - Stats: precio actual, balance, ganancia potencial, distancia %
 
-2. **Cálculo de ganancias offline:**
-   - Al hacer login, compara `last_updated` con hora actual
-   - Calcula producción basada en hashrate del grid guardado
-   - Solo muestra modal si pasaron >60 segundos y hay ganancias
-   - 50% de eficiencia (como en GDD)
+2. **Store actualizado (useGameStore.ts):**
+   - Estado `bots: { sSOL: {active, targetPrice}, sXRP: {active, targetPrice} }`
+   - Funciones `setBotActive()` y `setBotTargetPrice()`
+   - Validación de precios negativos
 
-3. **App.tsx actualizado:**
-   - Estado `offlineEarnings` para el modal
-   - Lógica de cálculo de hashrate desde grid restaurado
-   - Integración con OfflineEarningsModal
+3. **useGameLoop actualizado:**
+   - Lógica de venta automática cuando precio >= targetPrice
+   - Toast de confirmación cuando bot ejecuta venta
+   - Soporte para ambos bots (SOL y XRP)
+
+4. **ExchangePanel actualizado:**
+   - Sección de Trading Bots integrada
+   - Paneles de bots al lado de los gráficos
 
 **Funcionalidades:**
-- Ganancias offline al volver al juego
-- Modal de bienvenida premium
-- Animaciones de contador
-- Eficiencia 50% mientras offline
+- Bots de Grid Spot para venta automática
+- Configurar precio objetivo por moneda
+- Toggle ON/OFF con animaciones
+- Monitoreo de mercado en tiempo real
+- Ejecución automática al alcanzar precio objetivo
 
-**Build:** ✓ OK (948KB - warning chunk size)
+**Build:** ✓ OK (952KB - warning chunk)
 
 **Repo:** https://github.com/gamminminingjeez-cpu/miningjeez
 
@@ -40,17 +43,13 @@
 
 ## Registros Anteriores
 
+### Offline Earnings Modal
+- Modal premium con contador animado
+- Cálculo de ganancias offline
+
 ### Exchange / Mercado Cripto
 - Recharts para gráficos financieros
-- Fluctuación de precios cada 5s
-- Venta de cryptos con Supabase
+- Fluctuación de precios
 
-### Tienda
-- Sonner notificaciones
-- Tabs Inventario/Tienda
-
-### Game Loop y Sinergias
-- Motor de stats, adyacencias
-
-### Drag & Drop, Layout, Auth
+### Tienda, Game Loop, Drag & Drop, Layout, Auth
 - Ver commits anteriores

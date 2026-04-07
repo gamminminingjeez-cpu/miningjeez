@@ -18,11 +18,18 @@ function fluctuatePrice(currentPrice: number): number {
   return Math.max(startPrice * 0.5, Math.min(startPrice * 2, newPrice))
 }
 
+// Store for toast function - will be set from App.tsx
+let toastFunction: ((message: string, options?: any) => void) | null = null
+export const setToastFunction = (fn: (message: string, options?: any) => void) => {
+  toastFunction = fn
+}
+
 export function useGameLoop() {
   const { 
     totalHashrate, isOverloaded, isThrottling, 
     addCrypto, credits, sSol, sXrp,
-    priceSOL, priceXRP, updateMarketPrices
+    priceSOL, priceXRP, updateMarketPrices,
+    bots, sellCrypto
   } = useGameStore()
   
   const lastSaveRef = useRef(Date.now())
@@ -47,6 +54,37 @@ export function useGameLoop() {
         const newSOL = fluctuatePrice(priceSOL)
         const newXRP = fluctuatePrice(priceXRP)
         updateMarketPrices(newSOL, newXRP)
+        
+        // Check trading bots AFTER prices are updated
+        // SOL Bot
+        if (bots.sSOL.active && sSol > 0 && newSOL >= bots.sSOL.targetPrice) {
+          const success = sellCrypto(sSol, 'sSol')
+          if (success && toastFunction) {
+            toastFunction(`🤖 Bot $sSOL ejecutado: Venta automática completada`, {
+              description: `Vendiste ${sSol.toFixed(6)} $sSOL a $${newSOL.toFixed(4)}`,
+              style: {
+                background: '#1e293b',
+                border: '1px solid rgba(34, 197, 94, 0.5)',
+                color: '#4ade80'
+              }
+            })
+          }
+        }
+        
+        // XRP Bot
+        if (bots.sXRP.active && sXrp > 0 && newXRP >= bots.sXRP.targetPrice) {
+          const success = sellCrypto(sXrp, 'sXrp')
+          if (success && toastFunction) {
+            toastFunction(`🤖 Bot $sXRP ejecutado: Venta automática completada`, {
+              description: `Vendiste ${sXrp.toFixed(6)} $sXRP a $${newXRP.toFixed(4)}`,
+              style: {
+                background: '#1e293b',
+                border: '1px solid rgba(34, 197, 94, 0.5)',
+                color: '#4ade80'
+              }
+            })
+          }
+        }
       }
       
       // Periodic save
@@ -65,5 +103,5 @@ export function useGameLoop() {
         clearTimeout(tickRef.current)
       }
     }
-  }, [totalHashrate, isOverloaded, isThrottling, addCrypto, credits, sSol, sXrp, priceSOL, priceXRP, updateMarketPrices])
+  }, [totalHashrate, isOverloaded, isThrottling, addCrypto, credits, sSol, sXrp, priceSOL, priceXRP, updateMarketPrices, bots, sellCrypto])
 }

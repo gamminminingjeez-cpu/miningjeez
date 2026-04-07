@@ -7,6 +7,11 @@ interface PricePoint {
   priceXRP: number
 }
 
+interface TradingBot {
+  active: boolean
+  targetPrice: number
+}
+
 interface GameState {
   // Grid state (5x5)
   grid: GridCell[][]
@@ -23,6 +28,12 @@ interface GameState {
   priceSOL: number
   priceXRP: number
   priceHistory: PricePoint[]
+  
+  // Trading bots
+  bots: {
+    sSOL: TradingBot
+    sXRP: TradingBot
+  }
   
   // Computed stats
   totalHashrate: number
@@ -45,6 +56,8 @@ interface GameState {
   addCrypto: (sSol: number, sXrp: number) => void
   sellCrypto: (amount: number, currency: 'sSol' | 'sXrp') => boolean
   updateMarketPrices: (sol: number, xrp: number) => void
+  setBotActive: (currency: 'sSOL' | 'sXRP', active: boolean) => void
+  setBotTargetPrice: (currency: 'sSOL' | 'sXRP', price: number) => void
   resetGame: () => void
 }
 
@@ -77,6 +90,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   priceSOL: 0.50,
   priceXRP: 2.00,
   priceHistory: [{ time: Date.now(), priceSOL: 0.50, priceXRP: 2.00 }],
+  
+  // Trading bots
+  bots: {
+    sSOL: { active: false, targetPrice: 0.60 },
+    sXRP: { active: false, targetPrice: 2.50 }
+  },
   
   totalHashrate: 0,
   totalConsumption: 0,
@@ -234,6 +253,25 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ priceSOL: sol, priceXRP: xrp, priceHistory: newHistory })
   },
 
+  setBotActive: (currency, active) => {
+    const { bots } = get()
+    if (currency === 'sSOL') {
+      set({ bots: { ...bots, sSOL: { ...bots.sSOL, active } } })
+    } else {
+      set({ bots: { ...bots, sXRP: { ...bots.sXRP, active } } })
+    }
+  },
+
+  setBotTargetPrice: (currency, price) => {
+    const { bots } = get()
+    if (price < 0) return // Validate no negative prices
+    if (currency === 'sSOL') {
+      set({ bots: { ...bots, sSOL: { ...bots.sSOL, targetPrice: price } } })
+    } else {
+      set({ bots: { ...bots, sXRP: { ...bots.sXRP, targetPrice: price } } })
+    }
+  },
+
   resetGame: () => {
     set({
       grid: createEmptyGrid(),
@@ -244,6 +282,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       priceSOL: 0.50,
       priceXRP: 2.00,
       priceHistory: [{ time: Date.now(), priceSOL: 0.50, priceXRP: 2.00 }],
+      bots: {
+        sSOL: { active: false, targetPrice: 0.60 },
+        sXRP: { active: false, targetPrice: 2.50 }
+      },
       totalHashrate: 0,
       totalConsumption: 0,
       totalCooling: 0,
